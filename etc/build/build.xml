@@ -17,11 +17,11 @@
 			<file name="${war.dir}/js/orgchart.min.js" />
     	</concat>
 
-		<jscomp compilationLevel="simple" debug="false" forceRecompile="true" output="${basedir}/.tmp0.js">
+		<concat compilationLevel="simple" debug="false" forceRecompile="true" output="${basedir}/.tmp0.js">
 			<sources dir="${war.dir}/connect/common/js">
 				<file name="mxReader.js" />
 			</sources>
-		</jscomp>
+		</concat>
 
 	    <concat destfile="${war.dir}/js/atlas.min.js" fixlastline="yes" append="no">
 			<file name="${basedir}/base.min.js" />
@@ -35,11 +35,11 @@
 	<target name="integrate" depends="atlas">
 		<copy file="${war.dir}/js/atlas.min.js" tofile="${war.dir}/js/integrate.min.js" overwrite="true"/>
 
-		<jscomp compilationLevel="simple" debug="false" forceRecompile="true" output="${basedir}/.tmp0.js">
+		<concat compilationLevel="simple" debug="false" forceRecompile="true" output="${basedir}/.tmp0.js">
 			<sources dir="${basedir}/../integrate">
 				<file name="Integrate.js" />
 			</sources>
-		</jscomp>
+		</concat>
 		
 	    <concat destfile="${war.dir}/js/integrate.min.js" fixlastline="yes" append="yes">
 			<file name="${war.dir}/js/shapes-14-6-5.min.js" />
