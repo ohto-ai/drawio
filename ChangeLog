@@ -1,3 +1,14 @@
+08-AUG-2025: 28.0.9
+
+- [conf cloud] Recovers from bug in page IDs import where server drawio macros are changed to embed (re-indexing reconverts them) [DID-15899]
+
+08-AUG-2025: 28.0.8
+
+- Fixes mermaid Gantt diagrams width [DID-15926]
+- [conf cloud] Reduces diagram preview image size to fit more in search-recent
+- [conf cloud] Removes edit-settings buttons in Livedoc viewer [DID-15961]
+- [conf cloud] Fixes a bug in page IDs import where server drawio macros changes to embed [DID-15899]
+
 25-JUL-2025: 28.0.7
 
 - Fixes zoom out icon in draft dialog [jgraph/drawio-desktop#2154]

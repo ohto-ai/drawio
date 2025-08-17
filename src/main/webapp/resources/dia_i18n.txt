@@ -1317,4 +1317,5 @@ confAExtSrvcNoSupported=confAExtSrvcNoSupported
 gliffyVersionPinning=gliffyVersionPinning
 confEmbedUpload=confEmbedUpload
 confPublishErr=confPublishErr
-drives=drives
+confACacheMapping=confACacheMapping
+confARemImpSpaces=confARemImpSpaces
