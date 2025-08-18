@@ -25,26 +25,22 @@ function loadDiagramFromUrl(url, editorUi) {
         .then(({ xml, fileName, url, lastModified }) => {
             const doc = mxUtils.parseXml(xml);
             editorUi = editorUi || window.sb.editorUi;
-            editorUi.editor.setGraphXml(doc.documentElement);
-            // editorUi.fileLoaded(xml);
+            var root = doc.documentElement;
+
+            editorUi.editor.setGraphXml(root);
+
             editorUi.editor.setModified(false);
-            editorUi.editor.setFilename(url.split('/').pop());
 
-            setTimeout(() => {
-                console.log("Diagram loaded:", fileName, "Last modified:", lastModified);
-                editorUi.getCurrentFile().title = editorUi.getLinkTitle(editorUi.editor.filename);
-                editorUi.updateDocumentTitle();
-                editorUi.descriptorChanged()
-            }, 1000)
+            var file = new LocalFile(editorUi, doc, fileName);
+            editorUi.setCurrentFile(file);
 
-            // setTimeout(() => {
+            editorUi.updateDocumentTitle();
+            editorUi.descriptorChanged();
 
-                // console.log("Diagram loaded from URL:", url, "File info:", editorUi.currentFile);
-                // 如果editorUi.currentFile可用， 设置currentFile的title
-                // if (editorUi.currentFile) {
-                //     editorUi.currentFile.title = editorUi.getLinkTitle(fileName);
-                // }
-            // }, 1000); // 延时 1 秒，确保图形加载完成
+
+            file.addListener(mxEvent.CHANGE, function(sender, evt){
+                console.log('文件内容改变了');
+            });
 
         });
 }
@@ -154,33 +150,35 @@ class StripedOverlayManager {
 window.addEventListener("load", () => {
     setTimeout(() => {
         console.log("Plugin loaded: StripedOverlayManager");
-        loadDiagramFromUrl("demo/manual.drawio.xml", window.sb.editorUi);
 
-        // setTimeout(() => {
-            console.log("Diagram loaded, initializing StripedOverlayManager");
-            const graph = window.sb.editorUi.editor.graph;
-            const manager = new StripedOverlayManager(graph);
+        setTimeout(() => {
+            var url = "demo/manual.drawio.xml"; // 默认 URL
+            if (url) {
+                loadDiagramFromUrl(url, window.sb.editorUi);
 
-            // 过滤 group_id=G3 的 cell
-            // const g3Cells = manager.filterCells(cell => cell.value?.getAttribute('group_id') === 'G3');
-
-            // 应用 overlay
-            // manager.applyOverlay(g3Cells, cell => "分组提示: " + cell.value?.getAttribute('group_id'));
-        // }, 1000);
-        setInterval(() => {
-            manager.updateOverlay(
-                cell => {
-                    if (!cell || !cell.value) return false;
-                    if (typeof cell.value === "string") return false;
-                    return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
-                },
-                cell => {
-                    if (!cell || !cell.value) return "";
-                    if (typeof cell.value === "string") return "";
-                    return "警告: " + cell.value.getAttribute('alarm');
-                }
-            );
+                console.log("Diagram loaded, initializing StripedOverlayManager");
+                const graph = window.sb.editorUi.editor.graph;
+                const manager = new StripedOverlayManager(graph);
+                setInterval(() => {
+                    manager.updateOverlay(
+                        cell => {
+                            if (!cell || !cell.value) return false;
+                            if (typeof cell.value === "string") return false;
+                            return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
+                        },
+                        cell => {
+                            if (!cell || !cell.value) return "";
+                            if (typeof cell.value === "string") return "";
+                            return "警告: " + cell.value.getAttribute('alarm');
+                        }
+                    );
+                }, 1000);
+            }
         }, 1000);
+
+        // loadDiagramFromUrl("demo/manual.drawio.xml", window.sb.editorUi);
+
+
     }, 1000); // 延时 1 秒
 
 });
