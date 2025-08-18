@@ -27,9 +27,17 @@ function loadDiagramFromUrl(url, editorUi) {
             editorUi = editorUi || window.sb.editorUi;
             editorUi.editor.setGraphXml(doc.documentElement);
             // editorUi.fileLoaded(xml);
+            editorUi.editor.setModified(false);
+            editorUi.editor.setFilename(url.split('/').pop());
+
+            setTimeout(() => {
+                console.log("Diagram loaded:", fileName, "Last modified:", lastModified);
+                editorUi.getCurrentFile().title = editorUi.getLinkTitle(editorUi.editor.filename);
+                editorUi.updateDocumentTitle();
+                editorUi.descriptorChanged()
+            }, 1000)
 
             // setTimeout(() => {
-                console.log("Diagram loaded:", fileName, "Last modified:", lastModified);
 
                 // console.log("Diagram loaded from URL:", url, "File info:", editorUi.currentFile);
                 // 如果editorUi.currentFile可用， 设置currentFile的title
