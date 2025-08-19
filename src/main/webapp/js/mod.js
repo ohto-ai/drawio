@@ -1,49 +1,7 @@
 /**
- * file: js/plugin.js
+ * file: js/mod.js
  * Description: This script loads a diagram from a URL specified in the query parameters.
  */
-
-
-/**
- * 
- * @param {string} url 
- * @param {App} editorUi defaults to window.sb.editorUi
- */
-function loadDiagramFromUrl(url, editorUi) {
-    fetch(url)
-        .then(resp => {
-            // 获取文件名和其他信息
-            const fileName = url.split('/').pop();
-            const lastModified = resp.headers.get('Last-Modified');
-            return resp.text().then(xml => ({
-                xml,
-                fileName,
-                url,
-                lastModified
-            }));
-        })
-        .then(({ xml, fileName, url, lastModified }) => {
-            const doc = mxUtils.parseXml(xml);
-            editorUi = editorUi || window.sb.editorUi;
-            var root = doc.documentElement;
-
-            editorUi.editor.setGraphXml(root);
-
-            editorUi.editor.setModified(false);
-
-            var file = new LocalFile(editorUi, doc, fileName);
-            editorUi.setCurrentFile(file);
-
-            editorUi.updateDocumentTitle();
-            editorUi.descriptorChanged();
-
-
-            file.addListener(mxEvent.CHANGE, function(sender, evt){
-                console.log('文件内容改变了');
-            });
-
-        });
-}
 
 /**
  * 遍历对象树，查找含有指定属性或方法的对象
@@ -92,6 +50,54 @@ function findObjectsWith(root, keyName, maxDepth = 3) {
   return matches;
 }
 
+/**
+ * DiagramLoader：负责加载和设置diagram
+ */
+class DiagramLoader {
+    /**
+     * @param {App} editorUi
+     */
+    constructor(editorUi) {
+        this.editorUi = editorUi || window.sb.editorUi;
+    }
+
+    /**
+     * 从URL加载diagram
+     * @param {string} url
+     * @returns {Promise<LocalFile>}
+     */
+    loadFromUrl(url) {
+        return fetch(url)
+            .then(resp => {
+                const fileName = url.split('/').pop();
+                const lastModified = resp.headers.get('Last-Modified');
+                return resp.text().then(xml => ({
+                    xml,
+                    fileName,
+                    url,
+                    lastModified
+                }));
+            })
+            .then(({ xml, fileName, url, lastModified }) => {
+                const doc = mxUtils.parseXml(xml);
+                var root = doc.documentElement;
+
+                this.editorUi.editor.setGraphXml(root);
+                this.editorUi.editor.setModified(false);
+
+                var file = new LocalFile(this.editorUi, doc, fileName);
+                this.editorUi.setCurrentFile(file);
+                this.editorUi.updateDocumentTitle();
+                this.editorUi.descriptorChanged();
+
+                file.addListener(mxEvent.CHANGE, function(sender, evt){
+                    console.log('文件内容改变了');
+                });
+
+                return file;
+            });
+    }
+}
 
 /**
  * StripedOverlayManager（高亮边框版）
@@ -109,6 +115,7 @@ class StripedOverlayManager {
         this._borderTimer = null;
         this._interval = 300; // ms
         this.mxConstants = window.mxConstants;
+        this._autoHighlightTimer = null;
     }
 
     // 记录原始样式
@@ -156,6 +163,10 @@ class StripedOverlayManager {
             clearInterval(this._borderTimer);
             this._borderTimer = null;
         }
+        if (this._autoHighlightTimer) {
+            clearInterval(this._autoHighlightTimer);
+            this._autoHighlightTimer = null;
+        }
         this.cellsWithHighlight.forEach(cell => {
             if (this._originalStyles.has(cell)) {
                 this.graph.getModel().setStyle(cell, this._originalStyles.get(cell));
@@ -199,17 +210,32 @@ class StripedOverlayManager {
             });
         }, this._interval);
     }
+
+    /**
+     * 自动高亮 alarm=1 的cell
+     * @param {number} intervalMs
+     */
+    startAutoHighlightAlarm(intervalMs = 1000) {
+        if (this._autoHighlightTimer) return;
+        this._autoHighlightTimer = setInterval(() => {
+            this.updateHighlight(
+                cell => {
+                    if (!cell || !cell.value) return false;
+                    if (typeof cell.value === "string") return false;
+                    return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
+                }
+            );
+        }, intervalMs);
+    }
+    stopAutoHighlightAlarm() {
+        if (this._autoHighlightTimer) {
+            clearInterval(this._autoHighlightTimer);
+            this._autoHighlightTimer = null;
+        }
+    }
 }
 
-// this.editor.getOrCreateFilename = function() {
-//             var u = d.defaultFilename
-//               , D = d.getCurrentFile();
-//             null != D && (u = null != D.getTitle() ? D.getTitle() : u);
-//             return u
-//         }
-
-// 高亮alarm属性为1的 cell
-// 替换原有 StripedOverlayManager 的用法
+// 入口
 window.addEventListener("load", () => {
     setTimeout(() => {
         console.log("Plugin loaded: StripedOverlayManager");
@@ -217,23 +243,16 @@ window.addEventListener("load", () => {
         setTimeout(() => {
             var url = "demo/manual.drawio.xml"; // 默认 URL
             if (url) {
-                loadDiagramFromUrl(url, window.sb.editorUi);
-
-                console.log("Diagram loaded, initializing StripedOverlayManager");
-                const graph = window.sb.editorUi.editor.graph;
-                const manager = new StripedOverlayManager(graph);
-                setInterval(() => {
-                    manager.updateHighlight(
-                        cell => {
-                            if (!cell || !cell.value) return false;
-                            if (typeof cell.value === "string") return false;
-                            return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
-                        }
-                    );
-                }, 1000);
+                const loader = new DiagramLoader(window.sb.editorUi);
+                loader.loadFromUrl(url).then(() => {
+                    console.log("Diagram loaded, initializing StripedOverlayManager");
+                    const graph = window.sb.editorUi.editor.graph;
+                    const manager = new StripedOverlayManager(graph);
+                    manager.startAutoHighlightAlarm(1000);
+                    // 如需手动停止高亮，可调用 manager.clearHighlight() 或 manager.stopAutoHighlightAlarm()
+                });
             }
         }, 1000);
 
-    }, 1000); // 延时 1 秒
-
+    }, 1000); // 延时
 });
