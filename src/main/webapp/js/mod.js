@@ -305,6 +305,6 @@ window.addEventListener("load", () => {
                     // 如需手动停止高亮，可调用 manager.clearHighlight() 或 manager.stopAutoHighlight()
                 });
             }
-        }, 1000);
+        }, 120000);
     });
 });
