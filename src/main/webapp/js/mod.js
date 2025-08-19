@@ -237,18 +237,19 @@ class StripedOverlayManager {
 
 // 入口
 window.addEventListener("load", () => {
+    window.ohtoai ||= {}
     setTimeout(() => {
         console.log("Plugin loaded: StripedOverlayManager");
 
         setTimeout(() => {
             var url = "demo/manual.drawio.xml"; // 默认 URL
             if (url) {
-                const loader = new DiagramLoader(window.sb.editorUi);
-                loader.loadFromUrl(url).then(() => {
+                window.ohtoai.loader = new DiagramLoader(window.sb.editorUi);
+                window.ohtoai.loader.loadFromUrl(url).then(() => {
                     console.log("Diagram loaded, initializing StripedOverlayManager");
                     const graph = window.sb.editorUi.editor.graph;
-                    const manager = new StripedOverlayManager(graph);
-                    manager.startAutoHighlightAlarm(1000);
+                    window.ohtoai.manager = new StripedOverlayManager(graph);
+                    window.ohtoai.manager.startAutoHighlightAlarm(1000);
                     // 如需手动停止高亮，可调用 manager.clearHighlight() 或 manager.stopAutoHighlightAlarm()
                 });
             }
