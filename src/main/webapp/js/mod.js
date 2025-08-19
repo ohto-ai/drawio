@@ -44,98 +44,160 @@ function loadDiagramFromUrl(url, editorUi) {
 
         });
 }
+
 /**
- * StripedOverlayManager
- * 基于 mxCellOverlay 为特定 cell 绘制红色透明斜纹
+ * 遍历对象树，查找含有指定属性或方法的对象
+ * @param {object} root       - 搜索的根节点对象
+ * @param {string} keyName    - 要查找的属性或方法名
+ * @param {number} maxDepth   - 最大递归深度 (默认 3)
+ * @returns {Array<{path: string, obj: object}>}
  */
+function findObjectsWith(root, keyName, maxDepth = 3) {
+  const seen = new WeakSet();
+  const matches = [];
+
+  function search(obj, path, depth) {
+    if (obj == null || typeof obj !== "object") return;
+    if (seen.has(obj)) return;
+    seen.add(obj);
+
+    try {
+      if (keyName in obj) {
+        if (typeof obj[keyName] === "function") {
+          console.log("Found function:", path, obj);
+        } else {
+          console.log("Found property:", path, obj);
+        }
+        matches.push({ path, obj });
+      }
+    } catch (e) {
+      // 某些对象属性访问可能报错，忽略
+    }
+
+    if (depth >= maxDepth) return;
+
+    for (let key in obj) {
+      try {
+        const val = obj[key];
+        if (val && typeof val === "object") {
+          search(val, path + "." + key, depth + 1);
+        }
+      } catch (e) {
+        // 有些 getter 会抛异常，忽略
+      }
+    }
+  }
+
+  search(root, "root", 0);
+  return matches;
+}
+
+
 /**
- * StripedOverlayManager（精简版）
- * 使用右下角 overlay 图标代替斜纹
+ * StripedOverlayManager（高亮边框版）
  */
 class StripedOverlayManager {
-    constructor(graph, iconUrl = "img/lib/ibm/management/alert_notification.svg") {
+    constructor(graph, highlightStyle = {strokeColor: '#ff0000', imageBorder: 'light-dark(#ff0000, transparent)', strokeWidth: 4}) {
         this.graph = graph;
-        this.iconUrl = iconUrl;
-        this.cellsWithOverlay = new Set();
-        this._overlayMap = new Map();
+        this.highlightStyle = highlightStyle;
+        this.cellsWithHighlight = new Set();
+        this._originalStyles = new Map();
+
+        // 蚂蚁线相关
+        this._borderColors = ['#ff0000', '#ffff00']; // 红、黄
+        this._colorIndex = 0;
+        this._borderTimer = null;
+        this._interval = 300; // ms
+        this.mxConstants = window.mxConstants;
     }
 
-    /**
-     * 创建 overlay
-     */
-    _createOverlay(cell, tooltip) {
-        const overlay = new mxCellOverlay(
-            new mxImage(this.iconUrl, 32, 32),
-            tooltip || "警告"
-        );
-
-        // 可选点击事件
-        overlay.addListener(mxEvent.CLICK, (sender, evt) => {
-            console.log("点击了 cell: " + tooltip);
-            evt.consume();
-        });
-
-        return overlay;
+    // 记录原始样式
+    _saveOriginalStyle(cell) {
+        if (!this._originalStyles.has(cell)) {
+            const style = this.graph.getModel().getStyle(cell) || '';
+            this._originalStyles.set(cell, style);
+        }
     }
 
-    /**
-     * 1. filterCells(callback)
-     */
-    filterCells(callback) {
-        const result = [];
-        this.graph.getModel().filterDescendants(cell => {
-            if (callback(cell)) result.push(cell);
-            return false;
-        });
-        return result;
-    }
-
-    /**
-     * 2. applyOverlay(cells, tooltipFunc)
-     */
-    applyOverlay(cells, tooltipFunc = null) {
+    // 应用高亮
+    applyHighlight(cells) {
         cells.forEach(cell => {
-            if (!this._overlayMap.has(cell)) {
-                const tooltip = tooltipFunc ? tooltipFunc(cell) : "警告";
-                const overlay = this._createOverlay(cell, tooltip);
-                this._overlayMap.set(cell, overlay);
-                this.graph.addCellOverlay(cell, overlay);
-                this.cellsWithOverlay.add(cell);
+            if (!this.cellsWithHighlight.has(cell)) {
+                this._saveOriginalStyle(cell);
+                this.cellsWithHighlight.add(cell);
+            }
+            this._setCellHighlightStyle(cell, this._borderColors[this._colorIndex]);
+        });
+        this._startBorderTimer();
+    }
+
+    // 设置单个cell的高亮样式
+    _setCellHighlightStyle(cell, color) {
+        let style = this._originalStyles.get(cell) || this.graph.getModel().getStyle(cell) || '';
+        // 检查是否为图片图元
+        const isImage = style.includes('shape=image') || style.includes('image=');
+        // 合并高亮样式
+        Object.entries(this.highlightStyle).forEach(([k, v]) => {
+            style = style.replace(new RegExp(`${k}=[^;]*;?`, 'g'), '');
+            if (k === 'strokeColor') {
+                style += `${k}=${color};`;
+            } else if (k === 'imageBorder') {
+                style += `${k}=light-dark(${color}, transparent);`;
+            } else {
+                style += `${k}=${v};`;
             }
         });
+        this.graph.getModel().setStyle(cell, style);
     }
 
-    /**
-     * 3. clearOverlay()
-     */
-    clearOverlay() {
-        this.cellsWithOverlay.forEach(cell => {
-            this.graph.removeCellOverlays(cell);
+    // 清除高亮
+    clearHighlight() {
+        if (this._borderTimer) {
+            clearInterval(this._borderTimer);
+            this._borderTimer = null;
+        }
+        this.cellsWithHighlight.forEach(cell => {
+            if (this._originalStyles.has(cell)) {
+                this.graph.getModel().setStyle(cell, this._originalStyles.get(cell));
+            }
         });
-        this.cellsWithOverlay.clear();
-        this._overlayMap.clear();
+        this.cellsWithHighlight.clear();
+        this._originalStyles.clear();
     }
 
-    /**
-     * 4. updateOverlay(callback, tooltipFunc)
-     * callback(cell) => true 显示 overlay，false 移除
-     */
-    updateOverlay(callback, tooltipFunc = null) {
+    // 更新高亮
+    updateHighlight(callback) {
         const model = this.graph.getModel();
         model.filterDescendants(cell => {
-            const shouldApply = callback(cell);
-            const hasOverlay = this.cellsWithOverlay.has(cell);
+            const shouldHighlight = callback(cell);
+            const hasHighlight = this.cellsWithHighlight.has(cell);
 
-            if (shouldApply && !hasOverlay) {
-                const tooltip = tooltipFunc ? tooltipFunc(cell) : "警告";
-                this.applyOverlay([cell], tooltipFunc);
-            } else if (!shouldApply && hasOverlay) {
-                this.graph.removeCellOverlays(cell);
-                this.cellsWithOverlay.delete(cell);
-                this._overlayMap.delete(cell);
+            if (shouldHighlight && !hasHighlight) {
+                this.applyHighlight([cell]);
+            } else if (!shouldHighlight && hasHighlight) {
+                if (this._originalStyles.has(cell)) {
+                    this.graph.getModel().setStyle(cell, this._originalStyles.get(cell));
+                }
+                this.cellsWithHighlight.delete(cell);
+                this._originalStyles.delete(cell);
             }
             return false;
         });
+        if (this.cellsWithHighlight.size === 0 && this._borderTimer) {
+            clearInterval(this._borderTimer);
+            this._borderTimer = null;
+        }
+    }
+
+    // 启动蚂蚁线定时器
+    _startBorderTimer() {
+        if (this._borderTimer) return;
+        this._borderTimer = setInterval(() => {
+            this._colorIndex = (this._colorIndex + 1) % this._borderColors.length;
+            this.cellsWithHighlight.forEach(cell => {
+                this._setCellHighlightStyle(cell, this._borderColors[this._colorIndex]);
+            });
+        }, this._interval);
     }
 }
 
@@ -147,6 +209,7 @@ class StripedOverlayManager {
 //         }
 
 // 高亮alarm属性为1的 cell
+// 替换原有 StripedOverlayManager 的用法
 window.addEventListener("load", () => {
     setTimeout(() => {
         console.log("Plugin loaded: StripedOverlayManager");
@@ -160,24 +223,16 @@ window.addEventListener("load", () => {
                 const graph = window.sb.editorUi.editor.graph;
                 const manager = new StripedOverlayManager(graph);
                 setInterval(() => {
-                    manager.updateOverlay(
+                    manager.updateHighlight(
                         cell => {
                             if (!cell || !cell.value) return false;
                             if (typeof cell.value === "string") return false;
                             return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
-                        },
-                        cell => {
-                            if (!cell || !cell.value) return "";
-                            if (typeof cell.value === "string") return "";
-                            return "警告: " + cell.value.getAttribute('alarm');
                         }
                     );
                 }, 1000);
             }
         }, 1000);
-
-        // loadDiagramFromUrl("demo/manual.drawio.xml", window.sb.editorUi);
-
 
     }, 1000); // 延时 1 秒
 
