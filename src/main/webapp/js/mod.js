@@ -100,61 +100,42 @@ class DiagramLoader {
 }
 
 /**
- * StripedOverlayManager（高亮边框版）
+ * StripedOverlayManager（基于 mxCellHighlight，不修改 style）
  */
 class StripedOverlayManager {
-    constructor(graph, highlightStyle = {strokeColor: '#ff0000', imageBorder: 'light-dark(#ff0000, transparent)', strokeWidth: 4}) {
+    constructor(graph, highlightColor = '#ff0000', strokeWidth = 4) {
         this.graph = graph;
-        this.highlightStyle = highlightStyle;
+        this.highlightColor = highlightColor;
+        this.strokeWidth = strokeWidth;
         this.cellsWithHighlight = new Set();
-        this._originalStyles = new Map();
-
-        // 蚂蚁线相关
-        this._borderColors = ['#ff0000', '#ffff00']; // 红、黄
+        this.highlights = new Map();
+        this._borderColors = ['#ff0000', '#ffff00'];
         this._colorIndex = 0;
         this._borderTimer = null;
-        this._interval = 300; // ms
-        this.mxConstants = window.mxConstants;
+        this._interval = 300;
         this._autoHighlightTimer = null;
-    }
-
-    // 记录原始样式
-    _saveOriginalStyle(cell) {
-        if (!this._originalStyles.has(cell)) {
-            const style = this.graph.getModel().getStyle(cell) || '';
-            this._originalStyles.set(cell, style);
-        }
     }
 
     // 应用高亮
     applyHighlight(cells) {
         cells.forEach(cell => {
             if (!this.cellsWithHighlight.has(cell)) {
-                this._saveOriginalStyle(cell);
+                const hl = new mxCellHighlight(
+                    this.graph,
+                    this._getHighlightColor(),
+                    this.strokeWidth
+                );
+                hl.highlight(this.graph.view.getState(cell));
+                this.highlights.set(cell, hl);
                 this.cellsWithHighlight.add(cell);
             }
-            this._setCellHighlightStyle(cell, this._borderColors[this._colorIndex]);
         });
         this._startBorderTimer();
     }
 
-    // 设置单个cell的高亮样式
-    _setCellHighlightStyle(cell, color) {
-        let style = this._originalStyles.get(cell) || this.graph.getModel().getStyle(cell) || '';
-        // 检查是否为图片图元
-        const isImage = style.includes('shape=image') || style.includes('image=');
-        // 合并高亮样式
-        Object.entries(this.highlightStyle).forEach(([k, v]) => {
-            style = style.replace(new RegExp(`${k}=[^;]*;?`, 'g'), '');
-            if (k === 'strokeColor') {
-                style += `${k}=${color};`;
-            } else if (k === 'imageBorder') {
-                style += `${k}=light-dark(${color}, transparent);`;
-            } else {
-                style += `${k}=${v};`;
-            }
-        });
-        this.graph.getModel().setStyle(cell, style);
+    // 获取当前高亮色
+    _getHighlightColor() {
+        return this._borderColors[this._colorIndex];
     }
 
     // 清除高亮
@@ -167,13 +148,9 @@ class StripedOverlayManager {
             clearInterval(this._autoHighlightTimer);
             this._autoHighlightTimer = null;
         }
-        this.cellsWithHighlight.forEach(cell => {
-            if (this._originalStyles.has(cell)) {
-                this.graph.getModel().setStyle(cell, this._originalStyles.get(cell));
-            }
-        });
+        this.highlights.forEach(hl => hl.hide());
+        this.highlights.clear();
         this.cellsWithHighlight.clear();
-        this._originalStyles.clear();
     }
 
     // 更新高亮
@@ -186,11 +163,10 @@ class StripedOverlayManager {
             if (shouldHighlight && !hasHighlight) {
                 this.applyHighlight([cell]);
             } else if (!shouldHighlight && hasHighlight) {
-                if (this._originalStyles.has(cell)) {
-                    this.graph.getModel().setStyle(cell, this._originalStyles.get(cell));
-                }
+                const hl = this.highlights.get(cell);
+                if (hl) hl.hide();
+                this.highlights.delete(cell);
                 this.cellsWithHighlight.delete(cell);
-                this._originalStyles.delete(cell);
             }
             return false;
         });
@@ -206,7 +182,13 @@ class StripedOverlayManager {
         this._borderTimer = setInterval(() => {
             this._colorIndex = (this._colorIndex + 1) % this._borderColors.length;
             this.cellsWithHighlight.forEach(cell => {
-                this._setCellHighlightStyle(cell, this._borderColors[this._colorIndex]);
+                const hl = this.highlights.get(cell);
+                if (hl) {
+                    hl.setHighlightColor(this._getHighlightColor());
+                    // 重新高亮以刷新颜色
+                    hl.hide();
+                    hl.highlight(this.graph.view.getState(cell));
+                }
             });
         }, this._interval);
     }
@@ -215,19 +197,13 @@ class StripedOverlayManager {
      * 自动高亮 alarm=1 的cell
      * @param {number} intervalMs
      */
-    startAutoHighlightAlarm(intervalMs = 1000) {
+    startAutoHighlight(callback, intervalMs = 1000) {
         if (this._autoHighlightTimer) return;
         this._autoHighlightTimer = setInterval(() => {
-            this.updateHighlight(
-                cell => {
-                    if (!cell || !cell.value) return false;
-                    if (typeof cell.value === "string") return false;
-                    return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
-                }
-            );
+            this.updateHighlight(callback);
         }, intervalMs);
     }
-    stopAutoHighlightAlarm() {
+    stopAutoHighlight() {
         if (this._autoHighlightTimer) {
             clearInterval(this._autoHighlightTimer);
             this._autoHighlightTimer = null;
@@ -249,8 +225,12 @@ window.addEventListener("load", () => {
                     console.log("Diagram loaded, initializing StripedOverlayManager");
                     const graph = window.sb.editorUi.editor.graph;
                     window.ohtoai.manager = new StripedOverlayManager(graph);
-                    window.ohtoai.manager.startAutoHighlightAlarm(1000);
-                    // 如需手动停止高亮，可调用 manager.clearHighlight() 或 manager.stopAutoHighlightAlarm()
+                    window.ohtoai.manager.startAutoHighlight(cell => {
+                        if (!cell || !cell.value) return false;
+                        if (typeof cell.value === "string") return false;
+                        return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
+                    });
+                    // 如需手动停止高亮，可调用 manager.clearHighlight() 或 manager.stopAutoHighlight()
                 });
             }
         }, 1000);
