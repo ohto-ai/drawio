@@ -52,6 +52,7 @@ function findObjectsWith(root, keyName, maxDepth = 3) {
 
 /**
  * DiagramLoader：负责加载和设置diagram
+ * 支持只读模式和切换为可编辑
  */
 class DiagramLoader {
     /**
@@ -59,14 +60,17 @@ class DiagramLoader {
      */
     constructor(editorUi) {
         this.editorUi = editorUi || window.sb.editorUi;
+        this._readonly = false;
     }
 
     /**
      * 从URL加载diagram
      * @param {string} url
+     * @param {boolean} readonly 是否只读
      * @returns {Promise<LocalFile>}
      */
-    loadFromUrl(url) {
+    loadFromUrl(url, readonly = false) {
+        this._readonly = readonly;
         return fetch(url)
             .then(resp => {
                 const fileName = url.split('/').pop();
@@ -94,8 +98,44 @@ class DiagramLoader {
                     console.log('文件内容改变了');
                 });
 
+                // 设置只读
+                this.setReadonly(this._readonly);
+
                 return file;
             });
+    }
+
+    /**
+     * 设置只读或可编辑
+     * @param {boolean} readonly
+     */
+    setReadonly(readonly = true) {
+        this._readonly = readonly;
+        if (this.editorUi && this.editorUi.editor && this.editorUi.editor.graph) {
+            this.editorUi.editor.graph.setEnabled(!readonly);
+        }
+        // 可根据需要禁用/启用更多UI控件
+    }
+
+    /**
+     * 开启编辑模式
+     */
+    enableEdit() {
+        this.setReadonly(false);
+    }
+
+    /**
+     * 开启只读模式
+     */
+    enableReadonly() {
+        this.setReadonly(true);
+    }
+
+    /**
+     * 当前是否只读
+     */
+    isReadonly() {
+        return this._readonly;
     }
 }
 
@@ -221,7 +261,7 @@ window.addEventListener("load", () => {
             var url = "demo/manual.drawio.xml"; // 默认 URL
             if (url) {
                 window.ohtoai.loader = new DiagramLoader(window.sb.editorUi);
-                window.ohtoai.loader.loadFromUrl(url).then(() => {
+                window.ohtoai.loader.loadFromUrl(url, true).then(() => {
                     console.log("Diagram loaded, initializing StripedOverlayManager");
                     const graph = window.sb.editorUi.editor.graph;
                     window.ohtoai.manager = new StripedOverlayManager(graph);
