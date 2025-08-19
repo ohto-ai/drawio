@@ -271,7 +271,22 @@ class StripedOverlayManager {
 // 入口
 window.addEventListener("load", () => {
     window.ohtoai ||= {}
-    setTimeout(() => {
+
+    // 等待 window.sb.editorUi 创建完毕
+    function waitForEditorUi(callback, timeout = 10000) {
+        const start = Date.now();
+        (function check() {
+            if (window.sb && window.sb.editorUi) {
+                callback();
+            } else if (Date.now() - start < timeout) {
+                setTimeout(check, 200);
+            } else {
+                console.error("editorUi 加载超时");
+            }
+        })();
+    }
+
+    waitForEditorUi(() => {
         console.log("Plugin loaded: StripedOverlayManager");
 
         setTimeout(() => {
@@ -291,6 +306,5 @@ window.addEventListener("load", () => {
                 });
             }
         }, 1000);
-
-    }, 1000); // 延时
+    });
 });
