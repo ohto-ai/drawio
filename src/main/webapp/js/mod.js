@@ -156,6 +156,23 @@ class StripedOverlayManager {
         this._autoHighlightTimer = null;
     }
 
+    setHighlightColors(colors) {
+        if (Array.isArray(colors) && colors.length > 0) {
+            this._borderColors = colors;
+            this._colorIndex = 0; // 重置颜色索引
+            // 如果有高亮存在，更新颜色
+            this.cellsWithHighlight.forEach(cell => {
+                const hl = this.highlights.get(cell);
+                if (hl) {
+                    hl.setHighlightColor(this._getHighlightColor());
+                    // 重新高亮以刷新颜色
+                    hl.hide();
+                    hl.highlight(this.graph.view.getState(cell));
+                }
+            });
+        }
+    }
+
     // 应用高亮
     applyHighlight(cells) {
         cells.forEach(cell => {
@@ -264,8 +281,8 @@ window.addEventListener("load", () => {
                 window.ohtoai.loader.loadFromUrl(url, true).then(() => {
                     console.log("Diagram loaded, initializing StripedOverlayManager");
                     const graph = window.sb.editorUi.editor.graph;
-                    window.ohtoai.manager = new StripedOverlayManager(graph);
-                    window.ohtoai.manager.startAutoHighlight(cell => {
+                    window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
+                    window.ohtoai.stripedOverlayManager.startAutoHighlight(cell => {
                         if (!cell || !cell.value) return false;
                         if (typeof cell.value === "string") return false;
                         return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
