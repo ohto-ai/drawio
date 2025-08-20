@@ -6,10 +6,8 @@ on:
     branches: 
       - '**'
       - '!gh-pages'
-  pull_request:
-    branches: 
-      - '**'
-      - '!gh-pages'
+  # Removed pull_request trigger to prevent double execution and conflicts
+  # PRs should not create permanent deployments to gh-pages
 
   workflow_dispatch:
 
@@ -17,6 +15,11 @@ on:
 permissions:
   contents: write
   pages: write
+
+# Prevent concurrent deployments to avoid conflicts
+concurrency:
+  group: github-pages-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   deploy:
