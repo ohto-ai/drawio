@@ -4,6 +4,11 @@ classes
 node_modules
 .vscode/settings.json
 netlist_output/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
 src/main/webapp/WEB-INF/lib/animal-sniffer-annotations-*.jar
 src/main/webapp/WEB-INF/lib/annotations-*.jar
 src/main/webapp/WEB-INF/lib/api-common-*.jar

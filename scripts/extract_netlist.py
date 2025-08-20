@@ -273,7 +273,9 @@ def extract_vertices_and_edges(file_path):
 def generate_page_csvs(page_data, output_dir):
     """
     Generate components.csv and wires.csv for a single page
+    Returns list of generated file paths
     """
+    generated_files = []
     page_dir = output_dir / page_data['name']
     page_dir.mkdir(parents=True, exist_ok=True)
     
@@ -302,29 +304,39 @@ def generate_page_csvs(page_data, output_dir):
                 properties
             ])
     
-    # Generate wires.csv
+    generated_files.append(components_file)
+    
+    # Generate wires.csv (removed port_index as requested)
     wires_file = page_dir / 'wires.csv'
     with open(wires_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['wire_id', 'from_component', 'from_port_index', 'to_component', 'to_port_index', 'path'])
+        writer.writerow(['wire_id', 'from_component', 'to_component', 'path'])
         
         for edge in page_data['edges']:
             writer.writerow([
                 edge['id'],
                 edge['source'],
-                edge['from_port'],
                 edge['target'],
-                edge['to_port'],
                 ''  # path - empty for now
             ])
+    
+    generated_files.append(wires_file)
+    return generated_files
 
 def generate_summary_csvs(all_pages_data, output_dir):
+    """Generate summary CSV files consolidating all pages
+    Returns list of generated file paths
+    
+    Note: summary_components.csv includes width,height from component data.
+    For multi-page components with different dimensions, uses first occurrence
+    and warns about inconsistencies.
     """
-    Generate summary CSV files consolidating all pages
-    """
+    generated_files = []
+    
     # Collect all components across pages
     all_components = {}
     all_wires = []
+    consistency_warnings = []
     
     for page_data in all_pages_data:
         page_name = page_data['name']
@@ -337,75 +349,122 @@ def generate_summary_csvs(all_pages_data, output_dir):
                     'id': comp_id,
                     'shape': comp_data['shape'],
                     'name': comp_data['value'],
+                    'width': comp_data['width'],
+                    'height': comp_data['height'],
                     'group_id': attrs.get('group_id', ''),
                     'image_id': attrs.get('image_id', ''),
                     'properties': format_properties(attrs),
                     'pages': [page_name]
                 }
             else:
-                # Component exists, merge properties and add page
+                # Component exists, check for inconsistencies (excluding x,y coordinates)
                 existing = all_components[comp_id]
                 if page_name not in existing['pages']:
                     existing['pages'].append(page_name)
                 
-                # Update properties by merging - keep the most common values or note conflicts
-                new_props = format_properties(attrs)
-                if new_props and new_props != existing['properties']:
-                    # For now, keep first occurrence but could implement merging logic
-                    # Could add conflict detection here if needed
-                    pass
-                    
-                # Update group_id and image_id if they were empty before
-                if not existing['group_id'] and attrs.get('group_id'):
-                    existing['group_id'] = attrs.get('group_id', '')
-                if not existing['image_id'] and attrs.get('image_id'):
-                    existing['image_id'] = attrs.get('image_id', '')
+                # Check for inconsistencies in non-coordinate fields
+                current_shape = comp_data['shape']
+                current_name = comp_data['value']
+                current_width = comp_data['width']
+                current_height = comp_data['height']
+                current_group_id = attrs.get('group_id', '')
+                current_image_id = attrs.get('image_id', '')
+                current_properties = format_properties(attrs)
+                
+                if current_shape != existing['shape']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent shape: '{existing['shape']}' vs '{current_shape}' on page {page_name}")
+                
+                if current_name != existing['name']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent name: '{existing['name']}' vs '{current_name}' on page {page_name}")
+                
+                # Check for significant dimension differences (tolerance for rounding)
+                if abs(current_width - existing['width']) > 0.1:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent width: {existing['width']} vs {current_width} on page {page_name}")
+                    # Use first occurrence dimensions
+                
+                if abs(current_height - existing['height']) > 0.1:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent height: {existing['height']} vs {current_height} on page {page_name}")
+                    # Use first occurrence dimensions
+                
+                if current_group_id and existing['group_id'] and current_group_id != existing['group_id']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent group_id: '{existing['group_id']}' vs '{current_group_id}' on page {page_name}")
+                
+                if current_image_id and existing['image_id'] and current_image_id != existing['image_id']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent image_id: '{existing['image_id']}' vs '{current_image_id}' on page {page_name}")
+                
+                if current_properties and existing['properties'] and current_properties != existing['properties']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent properties: '{existing['properties']}' vs '{current_properties}' on page {page_name}")
+                
+                # Update empty fields with non-empty values
+                if not existing['group_id'] and current_group_id:
+                    existing['group_id'] = current_group_id
+                if not existing['image_id'] and current_image_id:
+                    existing['image_id'] = current_image_id
+                if not existing['properties'] and current_properties:
+                    existing['properties'] = current_properties
         
-        # Collect all wires
+        # Collect all wires (remove port_index as requested)
         for edge in page_data['edges']:
             all_wires.append({
                 'wire_id': edge['id'],
                 'from_component': edge['source'],
-                'from_port_index': edge['from_port'],
                 'to_component': edge['target'],
-                'to_port_index': edge['to_port'],
-                'path': '',
                 'page': page_name
             })
     
-    # Write summary components.csv (without x,y coordinates)
+    # Print consistency warnings
+    if consistency_warnings:
+        print("\n" + "="*60)
+        print("COMPONENT CONSISTENCY WARNINGS")
+        print("="*60)
+        for warning in consistency_warnings:
+            print(warning)
+        print("="*60 + "\n")
+    
+    # Write summary components.csv (now includes width,height)
     summary_components_file = output_dir / 'summary_components.csv'
     with open(summary_components_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['component_id', 'shape', 'name', 'group_id', 'image_id', 'properties', 'pages'])
+        writer.writerow(['component_id', 'shape', 'name', 'width', 'height', 'group_id', 'image_id', 'properties', 'pages'])
         
         for comp_id, comp_data in all_components.items():
             writer.writerow([
                 comp_id,
                 comp_data['shape'],
                 comp_data['name'],
+                comp_data['width'],
+                comp_data['height'],
                 comp_data['group_id'],
                 comp_data['image_id'],
                 comp_data['properties'],
                 ';'.join(comp_data['pages'])
             ])
     
-    # Write summary wires.csv
+    generated_files.append(summary_components_file)
+    
+    # Write summary wires.csv (removed port_index as requested)
     summary_wires_file = output_dir / 'summary_wires.csv'
     with open(summary_wires_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['wire_id', 'from_component', 'from_port_index', 'to_component', 'to_port_index', 'path', 'page'])
+        writer.writerow(['wire_id', 'from_component', 'to_component', 'page'])
         
         for wire in all_wires:
             writer.writerow([
                 wire['wire_id'],
                 wire['from_component'],
-                wire['from_port_index'],
                 wire['to_component'],
-                wire['to_port_index'],
-                wire['path'],
                 wire['page']
             ])
+    
+    generated_files.append(summary_wires_file)
+    return generated_files
 
 def merge_diagrams(paths):
     """
@@ -436,11 +495,17 @@ if __name__ == "__main__":
         epilog='''
         This script generates CSV files for each page containing:
         - components.csv: Component information with position and properties
-        - wires.csv: Wire connections with port indices
+        - wires.csv: Wire connections (port indices removed for better compatibility)
         
         Additionally generates summary files:
-        - summary_components.csv: All components across pages (no position data)  
-        - summary_wires.csv: All wire connections with page information
+        - summary_components.csv: All components across pages (includes width,height from original data)  
+        - summary_wires.csv: All wire connections with page information (no port indices)
+        
+        Features:
+        - Component consistency checking across pages (warns about inconsistencies in 
+          shape, name, width, height, group_id, properties - x,y coordinates are page-specific and ignored)
+        - Simplified wire format without port indices for better parsing reliability
+        - Preserves component dimensions in summary for accurate cycle visualization
         '''
     )
     parser.add_argument('input_dir', nargs='?', default='src/main/webapp/demo',
@@ -478,22 +543,26 @@ if __name__ == "__main__":
         for f in files:
             print(f"  {f}")
     
-    # Generate CSV files for each page
+    # Generate CSV files for each page and track generated files
+    generated_files = []
     for page_data in all_pages_data:
         if args.verbose:
             print(f"Generating CSV files for page: {page_data['name']}")
             print(f"  Components: {len(page_data['vertices'])}")
             print(f"  Wires: {len(page_data['edges'])}")
-        generate_page_csvs(page_data, output_dir)
+        page_files = generate_page_csvs(page_data, output_dir)
+        generated_files.extend(page_files)
     
-    # Generate summary CSV files
+    # Generate summary CSV files and track them
     if args.verbose:
         print("Generating summary CSV files...")
-    generate_summary_csvs(all_pages_data, output_dir)
+    summary_files = generate_summary_csvs(all_pages_data, output_dir)
+    generated_files.extend(summary_files)
     
     print(f"\nNetlist export completed! Output saved to: {output_dir}")
     print("Generated files:")
-    for file_path in sorted(output_dir.rglob("*.csv")):
+    # Only show files that were actually generated in this run
+    for file_path in generated_files:
         print(f"  {file_path.relative_to(output_dir)}")
         
     if args.verbose:
