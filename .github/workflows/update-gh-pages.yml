@@ -1,0 +1,46 @@
+name: Deploy static content to Pages with branch-specific paths
+
+on:
+  push:
+    # 监听所有分支，但排除 gh-pages 分支
+    branches: 
+      - '**'
+      - '!gh-pages'
+  pull_request:
+    branches: 
+      - '**'
+      - '!gh-pages'
+
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    # 如果是 gh-pages 分支的推送，直接跳过
+    if: github.ref != 'refs/heads/gh-pages'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine deployment path
+        run: |
+          if [ "${{ github.ref_name }}" = "dev" ]; then
+            echo "DEPLOY_PATH=." >> $GITHUB_ENV
+          else
+            echo "DEPLOY_PATH=branch/${{ github.ref_name}" >> $GITHUB_ENV
+          fi
+          echo "当前分支: ${{ github.ref_name }}"
+          echo "部署路径: $DEPLOY_PATH"
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./src/main/webapp
+          destination_dir: ${{ env.DEPLOY_PATH }}
+          keep_files: true
+          force_orphan: false
+          commit_message: 'Deploy ${{ github.ref_name }} branch to ${{ env.DEPLOY_PATH }} [skip ci]'
