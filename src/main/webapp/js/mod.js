@@ -51,6 +51,38 @@ function findObjectsWith(root, keyName, maxDepth = 3) {
 }
 
 /**
+ * 加载drawio文件的接口
+ * @param {string} url - 文件的URL
+ * @param {Object} other_args - 其他参数，支持 {readonly: boolean}
+ * @returns {Promise<LocalFile>} 加载的文件对象
+ */
+function loadGraphXML(url, other_args = {}) {
+    console.log(`loadGraphXML: Loading diagram from ${url}`, other_args);
+    
+    // 获取当前editorUi实例
+    const editorUi = window.sb && window.sb.editorUi;
+    if (!editorUi) {
+        throw new Error('editorUi not available. Make sure the editor is loaded.');
+    }
+    
+    // 检查当前文件状态
+    const currentFile = editorUi.getCurrentFile();
+    if (currentFile) {
+        if (currentFile.isModified && currentFile.isModified()) {
+            console.log('loadGraphXML: Current file is modified, continuing with load (modifications will be discarded)');
+        } else {
+            console.log('loadGraphXML: Discarding current unmodified file');
+        }
+    }
+    
+    // 使用DiagramLoader加载新文件
+    const loader = new DiagramLoader(editorUi);
+    const readonly = other_args.readonly || false;
+    
+    return loader.loadFromUrl(url, readonly);
+}
+
+/**
  * DiagramLoader：负责加载和设置diagram
  * 支持只读模式和切换为可编辑
  */
@@ -288,6 +320,9 @@ window.addEventListener("load", () => {
 
     waitForEditorUi(() => {
         console.log("Plugin loaded: StripedOverlayManager");
+        
+        // 将loadGraphXML函数添加到全局window对象，方便调用
+        window.loadGraphXML = loadGraphXML;
 
         setTimeout(() => {
             var url = "demo/manual.drawio.xml"; // 默认 URL
