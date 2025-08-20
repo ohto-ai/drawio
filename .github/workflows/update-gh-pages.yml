@@ -6,6 +6,9 @@ on:
     branches: 
       - '**'
       - '!gh-pages'
+    # 只在 src 目录变更时触发
+    paths:
+      - 'src/**'
   # Removed pull_request trigger to prevent double execution and conflicts
   # PRs should not create permanent deployments to gh-pages
 
