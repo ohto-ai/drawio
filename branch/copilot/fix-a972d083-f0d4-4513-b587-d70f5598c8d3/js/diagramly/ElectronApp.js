@@ -643,11 +643,6 @@ mxStencilRegistry.allowEval = false;
 		
 		editorUi.actions.addAction('paste', function()
 		{
-			// Check if graph is enabled before allowing paste in readonly mode
-			if (editorUi.editor && editorUi.editor.graph && !editorUi.editor.graph.isEnabled())
-			{
-				return; // Don't paste in readonly mode
-			}
 			cloneSysCLipboardToMx();
 			origPaste();
 		}, false, '', Editor.ctrlKey + '+V');
@@ -656,11 +651,6 @@ mxStencilRegistry.allowEval = false;
 
 		editorUi.actions.addAction('pasteHere', function()
 		{
-			// Check if graph is enabled before allowing paste in readonly mode
-			if (editorUi.editor && editorUi.editor.graph && !editorUi.editor.graph.isEnabled())
-			{
-				return; // Don't paste in readonly mode
-			}
 			cloneSysCLipboardToMx();
 			origPasteHere();
 		});
@@ -672,13 +662,15 @@ mxStencilRegistry.allowEval = false;
 			var paste = this.actions.get('paste');
 			var pasteHere = this.actions.get('pasteHere');
 			
-			// Don't enable paste actions in readonly mode (when graph is disabled)
-			var pasteEnabled = graph.isEnabled() && (this.editor.graph.cellEditor.isContentEditing() || 
-				!graph.isCellLocked(graph.getDefaultParent()));
-			
-			paste.setEnabled(pasteEnabled);
-			pasteHere.setEnabled(pasteEnabled);
+			paste.setEnabled(this.editor.graph.cellEditor.isContentEditing() || 
+				(graph.isEnabled() && !graph.isCellLocked(graph.getDefaultParent())));
+			pasteHere.setEnabled(paste.isEnabled());
 		};
+		
+		// Listen for graph enabled/disabled changes to update action states
+		editorUi.editor.graph.addListener('enabledChanged', function() {
+			editorUi.updateActionStates();
+		});
 		
 		editorUi.actions.addAction('plugins...', function()
 		{
