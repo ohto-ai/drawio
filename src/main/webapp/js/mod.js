@@ -214,6 +214,7 @@ function isEditingEnabled() {
 
 /**
  * StripedOverlayManager（基于 mxCellHighlight，不修改 style）
+ * 支持两类高亮：条件高亮和指定高亮，具有优先级系统
  */
 class StripedOverlayManager {
     constructor(graph, highlightColor = '#ff0000', strokeWidth = 4) {
@@ -227,13 +228,197 @@ class StripedOverlayManager {
         this._borderTimer = null;
         this._interval = 300;
         this._autoHighlightTimer = null;
+        
+        // 新增：多个条件高亮支持
+        this._conditionalHighlights = [];  // [{id, callback, colors, colorIndex}]
+        
+        // 新增：多个指定高亮支持  
+        this._specificHighlights = [];     // [{id, cells, colors, colorIndex}]
+        
+        // 新增：追踪每个cell的高亮信息 {cell -> {type, id, highlight}}
+        this._cellHighlightInfo = new Map();
+    }
+
+    /**
+     * 添加条件高亮
+     * @param {string} id - 高亮标识符
+     * @param {function} callback - 判断函数
+     * @param {string[]} colors - 颜色组数组
+     * @returns {boolean} 是否添加成功
+     */
+    addConditionalHighlight(id, callback, colors) {
+        if (!id || typeof callback !== 'function' || !Array.isArray(colors) || colors.length === 0) {
+            return false;
+        }
+        
+        // 移除已存在的同id高亮
+        this.removeConditionalHighlight(id);
+        
+        this._conditionalHighlights.push({
+            id: id,
+            callback: callback,
+            colors: colors,
+            colorIndex: 0
+        });
+        
+        return true;
+    }
+
+    /**
+     * 移除条件高亮
+     * @param {string} id - 高亮标识符
+     * @returns {boolean} 是否移除成功
+     */
+    removeConditionalHighlight(id) {
+        const index = this._conditionalHighlights.findIndex(h => h.id === id);
+        if (index >= 0) {
+            this._conditionalHighlights.splice(index, 1);
+            this._refreshHighlights();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 添加指定高亮
+     * @param {string} id - 高亮标识符
+     * @param {object[]} cells - 要高亮的cell数组
+     * @param {string[]} colors - 颜色组数组
+     * @returns {boolean} 是否添加成功
+     */
+    addSpecificHighlight(id, cells, colors) {
+        if (!id || !Array.isArray(cells) || !Array.isArray(colors) || colors.length === 0) {
+            return false;
+        }
+        
+        // 移除已存在的同id高亮
+        this.removeSpecificHighlight(id);
+        
+        this._specificHighlights.push({
+            id: id,
+            cells: new Set(cells),
+            colors: colors,
+            colorIndex: 0
+        });
+        
+        return true;
+    }
+
+    /**
+     * 移除指定高亮
+     * @param {string} id - 高亮标识符
+     * @returns {boolean} 是否移除成功
+     */
+    removeSpecificHighlight(id) {
+        const index = this._specificHighlights.findIndex(h => h.id === id);
+        if (index >= 0) {
+            this._specificHighlights.splice(index, 1);
+            this._refreshHighlights();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 刷新所有高亮 - 重新计算并应用高亮
+     */
+    _refreshHighlights() {
+        // 清除所有现有高亮
+        this._clearAllHighlights();
+        
+        // 获取所有需要高亮的cells
+        const model = this.graph.getModel();
+        const cellsToHighlight = new Map(); // cell -> {type, id, colors, colorIndex}
+        
+        // 遍历所有cells并应用高亮逻辑
+        model.filterDescendants(cell => {
+            let highlightInfo = null;
+            
+            // 1. 检查条件高亮 (从后往前，最后的优先)
+            for (let i = this._conditionalHighlights.length - 1; i >= 0; i--) {
+                const condHighlight = this._conditionalHighlights[i];
+                try {
+                    if (condHighlight.callback(cell)) {
+                        highlightInfo = {
+                            type: 'conditional',
+                            id: condHighlight.id,
+                            colors: condHighlight.colors,
+                            colorIndex: condHighlight.colorIndex
+                        };
+                        break; // 短路测试，第一个匹配的就使用
+                    }
+                } catch (e) {
+                    console.warn(`条件高亮回调函数出错 (id: ${condHighlight.id}):`, e);
+                }
+            }
+            
+            // 2. 检查指定高亮 (从后往前，最后的优先，且优先于条件高亮)
+            for (let i = this._specificHighlights.length - 1; i >= 0; i--) {
+                const specHighlight = this._specificHighlights[i];
+                if (specHighlight.cells.has(cell)) {
+                    highlightInfo = {
+                        type: 'specific',
+                        id: specHighlight.id,
+                        colors: specHighlight.colors,
+                        colorIndex: specHighlight.colorIndex
+                    };
+                    break; // 找到就退出
+                }
+            }
+            
+            // 3. 应用高亮
+            if (highlightInfo) {
+                cellsToHighlight.set(cell, highlightInfo);
+            }
+            
+            return false;
+        });
+        
+        // 应用高亮
+        cellsToHighlight.forEach((info, cell) => {
+            this._applyHighlightToCell(cell, info);
+        });
+        
+        // 启动动画定时器
+        if (cellsToHighlight.size > 0) {
+            this._startBorderTimer();
+        }
+    }
+
+    /**
+     * 对单个cell应用高亮
+     * @param {object} cell - 要高亮的cell
+     * @param {object} info - 高亮信息 {type, id, colors, colorIndex}
+     */
+    _applyHighlightToCell(cell, info) {
+        const currentColor = info.colors[info.colorIndex];
+        const hl = new mxCellHighlight(
+            this.graph,
+            currentColor,
+            this.strokeWidth
+        );
+        hl.highlight(this.graph.view.getState(cell));
+        
+        this.highlights.set(cell, hl);
+        this.cellsWithHighlight.add(cell);
+        this._cellHighlightInfo.set(cell, info);
+    }
+
+    /**
+     * 清除所有高亮但不影响高亮定义
+     */
+    _clearAllHighlights() {
+        this.highlights.forEach(hl => hl.hide());
+        this.highlights.clear();
+        this.cellsWithHighlight.clear();
+        this._cellHighlightInfo.clear();
     }
 
     setHighlightColors(colors) {
         if (Array.isArray(colors) && colors.length > 0) {
             this._borderColors = colors;
             this._colorIndex = 0; // 重置颜色索引
-            // 如果有高亮存在，更新颜色
+            // 兼容性：如果有高亮存在，更新颜色
             this.cellsWithHighlight.forEach(cell => {
                 const hl = this.highlights.get(cell);
                 if (hl) {
@@ -281,6 +466,11 @@ class StripedOverlayManager {
         this.highlights.forEach(hl => hl.hide());
         this.highlights.clear();
         this.cellsWithHighlight.clear();
+        
+        // 新增：清除所有高亮定义
+        this._conditionalHighlights = [];
+        this._specificHighlights = [];
+        this._cellHighlightInfo.clear();
     }
 
     // 更新高亮
@@ -310,12 +500,45 @@ class StripedOverlayManager {
     _startBorderTimer() {
         if (this._borderTimer) return;
         this._borderTimer = setInterval(() => {
+            // 更新旧系统的颜色索引（向后兼容）
             this._colorIndex = (this._colorIndex + 1) % this._borderColors.length;
+            
+            // 更新所有高亮组的颜色索引
+            this._conditionalHighlights.forEach(highlight => {
+                highlight.colorIndex = (highlight.colorIndex + 1) % highlight.colors.length;
+            });
+            this._specificHighlights.forEach(highlight => {
+                highlight.colorIndex = (highlight.colorIndex + 1) % highlight.colors.length;
+            });
+            
+            // 更新高亮显示
             this.cellsWithHighlight.forEach(cell => {
                 const hl = this.highlights.get(cell);
-                if (hl) {
-                    hl.setHighlightColor(this._getHighlightColor());
+                const info = this._cellHighlightInfo.get(cell);
+                
+                if (hl && info) {
+                    // 使用新系统的颜色
+                    const currentColor = info.colors[info.colorIndex];
+                    hl.setHighlightColor(currentColor);
                     // 重新高亮以刷新颜色
+                    hl.hide();
+                    hl.highlight(this.graph.view.getState(cell));
+                    
+                    // 更新info中的colorIndex以保持同步
+                    if (info.type === 'conditional') {
+                        const condHighlight = this._conditionalHighlights.find(h => h.id === info.id);
+                        if (condHighlight) {
+                            info.colorIndex = condHighlight.colorIndex;
+                        }
+                    } else if (info.type === 'specific') {
+                        const specHighlight = this._specificHighlights.find(h => h.id === info.id);
+                        if (specHighlight) {
+                            info.colorIndex = specHighlight.colorIndex;
+                        }
+                    }
+                } else if (hl) {
+                    // 向后兼容：使用旧的颜色系统
+                    hl.setHighlightColor(this._getHighlightColor());
                     hl.hide();
                     hl.highlight(this.graph.view.getState(cell));
                 }
@@ -324,20 +547,61 @@ class StripedOverlayManager {
     }
 
     /**
-     * 自动高亮 alarm=1 的cell
-     * @param {number} intervalMs
+     * 自动高亮 alarm=1 的cell (向后兼容方法)
+     * @param {function} callback - 判断回调函数
+     * @param {number} intervalMs - 刷新间隔
      */
     startAutoHighlight(callback, intervalMs = 1000) {
         if (this._autoHighlightTimer) return;
+        
+        // 使用新系统添加一个默认的条件高亮
+        this.addConditionalHighlight('_legacy_auto', callback, this._borderColors.slice());
+        
         this._autoHighlightTimer = setInterval(() => {
-            this.updateHighlight(callback);
+            this._refreshHighlights();
         }, intervalMs);
     }
+    
     stopAutoHighlight() {
         if (this._autoHighlightTimer) {
             clearInterval(this._autoHighlightTimer);
             this._autoHighlightTimer = null;
         }
+        
+        // 移除默认的条件高亮
+        this.removeConditionalHighlight('_legacy_auto');
+    }
+
+    /**
+     * 获取所有条件高亮的信息
+     * @returns {Array} 条件高亮数组
+     */
+    getConditionalHighlights() {
+        return this._conditionalHighlights.map(h => ({
+            id: h.id,
+            colors: h.colors.slice(),
+            colorIndex: h.colorIndex
+        }));
+    }
+
+    /**
+     * 获取所有指定高亮的信息
+     * @returns {Array} 指定高亮数组
+     */
+    getSpecificHighlights() {
+        return this._specificHighlights.map(h => ({
+            id: h.id,
+            cells: Array.from(h.cells),
+            colors: h.colors.slice(),
+            colorIndex: h.colorIndex
+        }));
+    }
+
+    /**
+     * 立即刷新高亮显示
+     */
+    refresh() {
+        this._refreshHighlights();
     }
 }
 
