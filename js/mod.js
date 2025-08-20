@@ -51,93 +51,166 @@ function findObjectsWith(root, keyName, maxDepth = 3) {
 }
 
 /**
- * DiagramLoader：负责加载和设置diagram
- * 支持只读模式和切换为可编辑
+ * 加载drawio文件的接口
+ * @param {string} url - 文件的URL
+ * @param {boolean} readonly - 是否只读模式，默认为false
+ * @returns {Promise<LocalFile>} 加载的文件对象
  */
-class DiagramLoader {
-    /**
-     * @param {App} editorUi
-     */
-    constructor(editorUi) {
-        this.editorUi = editorUi || window.sb.editorUi;
-        this._readonly = false;
+function loadGraphXML(url, readonly = false) {
+    console.log(`loadGraphXML: Loading diagram from ${url}`, { readonly });
+    
+    // 获取当前editorUi实例
+    const editorUi = window.sb && window.sb.editorUi;
+    if (!editorUi) {
+        throw new Error('editorUi not available. Make sure the editor is loaded.');
     }
-
-    /**
-     * 从URL加载diagram
-     * @param {string} url
-     * @param {boolean} readonly 是否只读
-     * @returns {Promise<LocalFile>}
-     */
-    loadFromUrl(url, readonly = false) {
-        this._readonly = readonly;
-        return fetch(url)
-            .then(resp => {
-                const fileName = url.split('/').pop();
-                const lastModified = resp.headers.get('Last-Modified');
-                return resp.text().then(xml => ({
-                    xml,
-                    fileName,
-                    url,
-                    lastModified
-                }));
-            })
-            .then(({ xml, fileName, url, lastModified }) => {
-                const doc = mxUtils.parseXml(xml);
-                var root = doc.documentElement;
-
-                this.editorUi.editor.setGraphXml(root);
-                this.editorUi.editor.setModified(false);
-
-                var file = new LocalFile(this.editorUi, doc, fileName);
-                this.editorUi.setCurrentFile(file);
-                this.editorUi.updateDocumentTitle();
-                this.editorUi.descriptorChanged();
-
-                file.addListener(mxEvent.CHANGE, function(sender, evt){
-                    console.log('文件内容改变了');
-                });
-
-                // 设置只读
-                this.setReadonly(this._readonly);
-
-                return file;
-            });
-    }
-
-    /**
-     * 设置只读或可编辑
-     * @param {boolean} readonly
-     */
-    setReadonly(readonly = true) {
-        this._readonly = readonly;
-        if (this.editorUi && this.editorUi.editor && this.editorUi.editor.graph) {
-            this.editorUi.editor.graph.setEnabled(!readonly);
+    
+    // 检查当前文件状态
+    const currentFile = editorUi.getCurrentFile();
+    if (currentFile) {
+        if (currentFile.isModified && currentFile.isModified()) {
+            console.log('loadGraphXML: Current file is modified, continuing with load (modifications will be discarded)');
+        } else {
+            console.log('loadGraphXML: Discarding current unmodified file');
         }
-        // 可根据需要禁用/启用更多UI控件
     }
+    
+    // 从URL获取XML数据并使用editorUi的fileLoaded方法来正确加载文件
+    return fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+            }
+            return response.text();
+        })
+        .then(xmlData => {
+            // 获取文件名
+            const fileName = url.split('/').pop() || 'diagram.drawio.xml';
+            
+            // 创建LocalFile实例 - 这是DrawIO正确的文件加载方式
+            const localFile = new LocalFile(editorUi, xmlData, fileName, true);
+            
+            // 如果需要只读模式，设置文件为不可编辑
+            if (readonly) {
+                localFile.setEditable(false);
+            }
+            
+            // 使用editorUi的fileLoaded方法来正确加载文件
+            // 这会处理所有必要的状态更新、UI刷新等
+            editorUi.fileLoaded(localFile);
+            
+            // 如果是只读模式，禁用图形编辑
+            if (readonly && editorUi.editor && editorUi.editor.graph) {
+                editorUi.editor.graph.setEnabled(false);
+            }
+            
+            console.log('loadGraphXML: File loaded successfully', { fileName, readonly });
+            return localFile;
+        })
+        .catch(error => {
+            console.error('loadGraphXML: Error loading file', error);
+            throw error;
+        });
+}
 
-    /**
-     * 开启编辑模式
-     */
-    enableEdit() {
-        this.setReadonly(false);
-    }
-
-    /**
-     * 开启只读模式
-     */
-    enableReadonly() {
-        this.setReadonly(true);
-    }
-
-    /**
-     * 当前是否只读
-     */
-    isReadonly() {
-        return this._readonly;
+/**
+ * 启用编辑功能
+ * @returns {boolean} 成功返回true，失败返回false
+ */
+function enableEditing() {
+    console.log('enableEditing: Enabling editor');
+    
+    try {
+        const editorUi = window.sb && window.sb.editorUi;
+        if (!editorUi) {
+            console.error('enableEditing: editorUi not available');
+            return false;
+        }
+        
+        // 启用图形编辑
+        if (editorUi.editor && editorUi.editor.graph) {
+            editorUi.editor.graph.setEnabled(true);
+            console.log('enableEditing: Graph editing enabled');
+        }
+        
+        // 设置当前文件为可编辑
+        const currentFile = editorUi.getCurrentFile();
+        if (currentFile && typeof currentFile.setEditable === 'function') {
+            currentFile.setEditable(true);
+            console.log('enableEditing: File set as editable');
+        }
+        
+        console.log('enableEditing: Editing enabled successfully');
+        return true;
+    } catch (error) {
+        console.error('enableEditing: Error enabling editing', error);
+        return false;
     }
 }
+
+/**
+ * 禁用编辑功能（只读模式）
+ * @returns {boolean} 成功返回true，失败返回false
+ */
+function disableEditing() {
+    console.log('disableEditing: Disabling editor');
+    
+    try {
+        const editorUi = window.sb && window.sb.editorUi;
+        if (!editorUi) {
+            console.error('disableEditing: editorUi not available');
+            return false;
+        }
+        
+        // 禁用图形编辑
+        if (editorUi.editor && editorUi.editor.graph) {
+            editorUi.editor.graph.setEnabled(false);
+            console.log('disableEditing: Graph editing disabled');
+        }
+        
+        // 设置当前文件为不可编辑
+        const currentFile = editorUi.getCurrentFile();
+        if (currentFile && typeof currentFile.setEditable === 'function') {
+            currentFile.setEditable(false);
+            console.log('disableEditing: File set as non-editable');
+        }
+        
+        console.log('disableEditing: Editing disabled successfully');
+        return true;
+    } catch (error) {
+        console.error('disableEditing: Error disabling editing', error);
+        return false;
+    }
+}
+
+/**
+ * 检查当前是否启用编辑
+ * @returns {boolean} 如果启用编辑返回true，否则返回false
+ */
+function isEditingEnabled() {
+    try {
+        const editorUi = window.sb && window.sb.editorUi;
+        if (!editorUi) {
+            return false;
+        }
+        
+        // 检查图形是否启用
+        const graphEnabled = editorUi.editor && editorUi.editor.graph ? 
+            editorUi.editor.graph.isEnabled() : false;
+        
+        // 检查文件是否可编辑
+        const currentFile = editorUi.getCurrentFile();
+        const fileEditable = currentFile && typeof currentFile.isEditable === 'function' ? 
+            currentFile.isEditable() : true;
+        
+        return graphEnabled && fileEditable;
+    } catch (error) {
+        console.error('isEditingEnabled: Error checking editing status', error);
+        return false;
+    }
+}
+
+
 
 /**
  * StripedOverlayManager（基于 mxCellHighlight，不修改 style）
@@ -288,12 +361,19 @@ window.addEventListener("load", () => {
 
     waitForEditorUi(() => {
         console.log("Plugin loaded: StripedOverlayManager");
+        
+        // 将loadGraphXML函数添加到window.ohtoai下
+        window.ohtoai.loadGraphXML = loadGraphXML;
+        
+        // 将编辑控制函数添加到window.ohtoai下
+        window.ohtoai.enableEditing = enableEditing;
+        window.ohtoai.disableEditing = disableEditing;
+        window.ohtoai.isEditingEnabled = isEditingEnabled;
 
         setTimeout(() => {
             var url = "demo/manual.drawio.xml"; // 默认 URL
             if (url) {
-                window.ohtoai.loader = new DiagramLoader(window.sb.editorUi);
-                window.ohtoai.loader.loadFromUrl(url, true).then(() => {
+                window.ohtoai.loadGraphXML(url, true).then(() => {
                     console.log("Diagram loaded, initializing StripedOverlayManager");
                     const graph = window.sb.editorUi.editor.graph;
                     window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
@@ -303,6 +383,8 @@ window.addEventListener("load", () => {
                         return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
                     });
                     // 如需手动停止高亮，可调用 manager.clearHighlight() 或 manager.stopAutoHighlight()
+                }).catch(error => {
+                    console.error("Failed to load diagram:", error);
                 });
             }
         }, 1000);
