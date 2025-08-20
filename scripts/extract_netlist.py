@@ -2,6 +2,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 import csv
 import math
+import argparse
+import sys
 
 def classify_shape(style, width, height, value):
     """
@@ -329,8 +331,8 @@ def generate_summary_csvs(all_pages_data, output_dir):
         
         # Collect components (same ID considered same component)
         for comp_id, comp_data in page_data['vertices'].items():
+            attrs = comp_data['attrs']
             if comp_id not in all_components:
-                attrs = comp_data['attrs']
                 all_components[comp_id] = {
                     'id': comp_id,
                     'shape': comp_data['shape'],
@@ -341,9 +343,23 @@ def generate_summary_csvs(all_pages_data, output_dir):
                     'pages': [page_name]
                 }
             else:
-                # Add page to existing component
-                if page_name not in all_components[comp_id]['pages']:
-                    all_components[comp_id]['pages'].append(page_name)
+                # Component exists, merge properties and add page
+                existing = all_components[comp_id]
+                if page_name not in existing['pages']:
+                    existing['pages'].append(page_name)
+                
+                # Update properties by merging - keep the most common values or note conflicts
+                new_props = format_properties(attrs)
+                if new_props and new_props != existing['properties']:
+                    # For now, keep first occurrence but could implement merging logic
+                    # Could add conflict detection here if needed
+                    pass
+                    
+                # Update group_id and image_id if they were empty before
+                if not existing['group_id'] and attrs.get('group_id'):
+                    existing['group_id'] = attrs.get('group_id', '')
+                if not existing['image_id'] and attrs.get('image_id'):
+                    existing['image_id'] = attrs.get('image_id', '')
         
         # Collect all wires
         for edge in page_data['edges']:
@@ -415,51 +431,86 @@ def merge_diagrams(paths):
     return all_pages_data
 
 if __name__ == "__main__":
-    folder = Path("src/main/webapp/demo")
-    files = list(folder.glob("*.drawio.xml"))
+    parser = argparse.ArgumentParser(
+        description='Extract netlist (components and wires) from draw.io XML files',
+        epilog='''
+        This script generates CSV files for each page containing:
+        - components.csv: Component information with position and properties
+        - wires.csv: Wire connections with port indices
+        
+        Additionally generates summary files:
+        - summary_components.csv: All components across pages (no position data)  
+        - summary_wires.csv: All wire connections with page information
+        '''
+    )
+    parser.add_argument('input_dir', nargs='?', default='src/main/webapp/demo',
+                       help='Directory containing .drawio.xml files (default: src/main/webapp/demo)')
+    parser.add_argument('-o', '--output', default='netlist_output',
+                       help='Output directory for CSV files (default: netlist_output)')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                       help='Enable verbose output')
+    
+    args = parser.parse_args()
+    
+    input_folder = Path(args.input_dir)
+    output_dir = Path(args.output)
+    
+    if not input_folder.exists():
+        print(f"Error: Input directory '{input_folder}' does not exist")
+        sys.exit(1)
+        
+    files = list(input_folder.glob("*.drawio.xml"))
     
     if not files:
-        print("No drawio.xml files found in the demo folder")
-        exit(1)
+        print(f"No drawio.xml files found in '{input_folder}'")
+        sys.exit(1)
 
     # Extract data from all files
     all_pages_data = merge_diagrams(files)
     
     # Create output directory
-    output_dir = Path("netlist_output")
     output_dir.mkdir(exist_ok=True)
     
     print(f"Processing {len(files)} file(s) with {len(all_pages_data)} page(s)")
     
+    if args.verbose:
+        print(f"Input files:")
+        for f in files:
+            print(f"  {f}")
+    
     # Generate CSV files for each page
     for page_data in all_pages_data:
-        print(f"Generating CSV files for page: {page_data['name']}")
+        if args.verbose:
+            print(f"Generating CSV files for page: {page_data['name']}")
+            print(f"  Components: {len(page_data['vertices'])}")
+            print(f"  Wires: {len(page_data['edges'])}")
         generate_page_csvs(page_data, output_dir)
-        
-        # Print summary for verification
-        print(f"  Components: {len(page_data['vertices'])}")
-        print(f"  Wires: {len(page_data['edges'])}")
     
     # Generate summary CSV files
-    print("Generating summary CSV files...")
+    if args.verbose:
+        print("Generating summary CSV files...")
     generate_summary_csvs(all_pages_data, output_dir)
     
     print(f"\nNetlist export completed! Output saved to: {output_dir}")
-    print("Files generated:")
+    print("Generated files:")
     for file_path in sorted(output_dir.rglob("*.csv")):
-        print(f"  {file_path}")
+        print(f"  {file_path.relative_to(output_dir)}")
         
-    # Also print old format for comparison
-    print("\n" + "="*50)
-    print("Legacy format output (for comparison):")
-    print("="*50)
-    
-    for page_data in all_pages_data:
-        print(f"\nPage: {page_data['name']}")
-        print("Vertices:")
-        for cid, info in page_data['vertices'].items():
-            print(f"  {cid}: {info['value']} (shape={info['shape']}, pos=({info['x']},{info['y']}), size=({info['width']}x{info['height']}))")
-
-        print("Edges:")
-        for e in page_data['edges']:
-            print(f"  {e['source']} -> {e['target']} (edge {e['id']}, ports {e['from_port']}->{e['to_port']})")
+    if args.verbose:
+        print("\n" + "="*50)
+        print("Component and wire summary:")
+        print("="*50)
+        
+        total_components = sum(len(page['vertices']) for page in all_pages_data)
+        total_wires = sum(len(page['edges']) for page in all_pages_data)
+        
+        for page_data in all_pages_data:
+            print(f"\nPage: {page_data['name']}")
+            print(f"  Components: {len(page_data['vertices'])}")
+            print(f"  Wires: {len(page_data['edges'])}")
+            
+            if args.verbose:
+                for cid, info in page_data['vertices'].items():
+                    print(f"    {cid}: {info['value']} (shape={info['shape']}, pos=({info['x']},{info['y']}), size=({info['width']}x{info['height']}))")
+        
+        print(f"\nTotal: {total_components} components, {total_wires} wires across {len(all_pages_data)} pages")

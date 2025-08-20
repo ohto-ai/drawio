@@ -1,3 +1,0 @@
-component_id,shape,name,x,y,width,height,group_id,image_id,properties
-C1,face,SharedCMP1,200.0,200.0,60.0,60.0,,,alarm=3
-C3,point,TestCMP3,300.0,300.0,15.0,15.0,,,alarm=1
