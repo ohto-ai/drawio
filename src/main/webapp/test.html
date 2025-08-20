@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test loadGraphXML Function</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        button { padding: 10px 15px; margin: 5px; background: #007cba; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #005a87; }
+        .status { margin: 10px 0; padding: 10px; border-radius: 3px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        iframe { width: 100%; height: 600px; border: 1px solid #ccc; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>测试 loadGraphXML 函数</h1>
+        
+        <div class="test-section">
+            <h2>当前实现的功能测试</h2>
+            <p>这个页面提供了一个简单的测试环境，用于验证 <code>window.ohtoai.loadGraphXML</code> 函数的功能。</p>
+            
+            <div class="status info">
+                <strong>注意：</strong> 请确保 draw.io 编辑器已完全加载后再测试。
+            </div>
+            
+            <div id="drawio-container">
+                <iframe src="/index.html" id="drawio-frame"></iframe>
+            </div>
+            
+            <div>
+                <h3>测试按钮</h3>
+                <button onclick="testBasicLoad()">测试基本加载 (demo/manual.drawio.xml)</button>
+                <button onclick="testReadonlyLoad()">测试只读模式加载</button>
+                <button onclick="testErrorHandling()">测试错误处理</button>
+                <button onclick="checkAPI()">检查 API 可用性</button>
+            </div>
+            
+            <div id="test-results"></div>
+        </div>
+    </div>
+    
+    <script>
+        function logResult(message, type = 'info') {
+            const results = document.getElementById('test-results');
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${message}`;
+            results.appendChild(div);
+            results.scrollTop = results.scrollHeight;
+        }
+        
+        function getDrawIOWindow() {
+            const iframe = document.getElementById('drawio-frame');
+            return iframe.contentWindow;
+        }
+        
+        function checkAPI() {
+            try {
+                const drawioWindow = getDrawIOWindow();
+                if (!drawioWindow) {
+                    logResult('无法访问 draw.io iframe', 'error');
+                    return;
+                }
+                
+                if (drawioWindow.ohtoai && typeof drawioWindow.ohtoai.loadGraphXML === 'function') {
+                    logResult('✅ window.ohtoai.loadGraphXML 函数可用', 'success');
+                    
+                    if (drawioWindow.sb && drawioWindow.sb.editorUi) {
+                        logResult('✅ editorUi 已初始化', 'success');
+                    } else {
+                        logResult('⚠️ editorUi 还未初始化，请等待编辑器完全加载', 'info');
+                    }
+                } else {
+                    logResult('❌ window.ohtoai.loadGraphXML 函数不可用', 'error');
+                }
+            } catch (error) {
+                logResult(`检查 API 时出错: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testBasicLoad() {
+            try {
+                logResult('开始测试基本加载...', 'info');
+                const drawioWindow = getDrawIOWindow();
+                
+                if (!drawioWindow.ohtoai || !drawioWindow.ohtoai.loadGraphXML) {
+                    logResult('loadGraphXML 函数不可用', 'error');
+                    return;
+                }
+                
+                const result = await drawioWindow.ohtoai.loadGraphXML('demo/manual.drawio.xml', false);
+                logResult('✅ 基本加载测试成功', 'success');
+                logResult(`加载的文件: ${result.getTitle()}`, 'info');
+                
+            } catch (error) {
+                logResult(`❌ 基本加载测试失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testReadonlyLoad() {
+            try {
+                logResult('开始测试只读模式加载...', 'info');
+                const drawioWindow = getDrawIOWindow();
+                
+                if (!drawioWindow.ohtoai || !drawioWindow.ohtoai.loadGraphXML) {
+                    logResult('loadGraphXML 函数不可用', 'error');
+                    return;
+                }
+                
+                const result = await drawioWindow.ohtoai.loadGraphXML('demo/manual.drawio.xml', true);
+                logResult('✅ 只读模式加载测试成功', 'success');
+                logResult(`加载的文件: ${result.getTitle()} (只读模式)`, 'info');
+                
+                // 检查是否真的是只读
+                if (result.isEditable && !result.isEditable()) {
+                    logResult('✅ 文件确实设置为只读模式', 'success');
+                } else {
+                    logResult('⚠️ 无法确认文件是否为只读模式', 'info');
+                }
+                
+            } catch (error) {
+                logResult(`❌ 只读模式测试失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testErrorHandling() {
+            try {
+                logResult('开始测试错误处理...', 'info');
+                const drawioWindow = getDrawIOWindow();
+                
+                if (!drawioWindow.ohtoai || !drawioWindow.ohtoai.loadGraphXML) {
+                    logResult('loadGraphXML 函数不可用', 'error');
+                    return;
+                }
+                
+                // 尝试加载一个不存在的文件
+                await drawioWindow.ohtoai.loadGraphXML('nonexistent.xml');
+                logResult('❌ 错误处理测试失败: 应该抛出错误', 'error');
+                
+            } catch (error) {
+                logResult(`✅ 错误处理测试成功: ${error.message}`, 'success');
+            }
+        }
+        
+        // 每5秒检查一次API可用性
+        setInterval(() => {
+            const iframe = document.getElementById('drawio-frame');
+            if (iframe.contentWindow && iframe.contentWindow.ohtoai && iframe.contentWindow.ohtoai.loadGraphXML) {
+                // API已可用，停止检查
+                return;
+            }
+        }, 5000);
+        
+        // 页面加载完成后延迟检查API
+        window.addEventListener('load', () => {
+            setTimeout(checkAPI, 3000);
+        });
+    </script>
+</body>
+</html>
