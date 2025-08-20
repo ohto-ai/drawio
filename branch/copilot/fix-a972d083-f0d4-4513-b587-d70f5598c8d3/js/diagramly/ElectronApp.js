@@ -672,9 +672,12 @@ mxStencilRegistry.allowEval = false;
 			var paste = this.actions.get('paste');
 			var pasteHere = this.actions.get('pasteHere');
 			
-			paste.setEnabled(this.editor.graph.cellEditor.isContentEditing() || 
-				(graph.isEnabled() && !graph.isCellLocked(graph.getDefaultParent())));
-			pasteHere.setEnabled(paste.isEnabled());
+			// Don't enable paste actions in readonly mode (when graph is disabled)
+			var pasteEnabled = graph.isEnabled() && (this.editor.graph.cellEditor.isContentEditing() || 
+				!graph.isCellLocked(graph.getDefaultParent()));
+			
+			paste.setEnabled(pasteEnabled);
+			pasteHere.setEnabled(pasteEnabled);
 		};
 		
 		editorUi.actions.addAction('plugins...', function()
