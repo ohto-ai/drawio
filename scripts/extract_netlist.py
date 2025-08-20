@@ -302,19 +302,17 @@ def generate_page_csvs(page_data, output_dir):
                 properties
             ])
     
-    # Generate wires.csv
+    # Generate wires.csv (removed port_index as requested)
     wires_file = page_dir / 'wires.csv'
     with open(wires_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['wire_id', 'from_component', 'from_port_index', 'to_component', 'to_port_index', 'path'])
+        writer.writerow(['wire_id', 'from_component', 'to_component', 'path'])
         
         for edge in page_data['edges']:
             writer.writerow([
                 edge['id'],
                 edge['source'],
-                edge['from_port'],
                 edge['target'],
-                edge['to_port'],
                 ''  # path - empty for now
             ])
 
@@ -325,6 +323,7 @@ def generate_summary_csvs(all_pages_data, output_dir):
     # Collect all components across pages
     all_components = {}
     all_wires = []
+    consistency_warnings = []
     
     for page_data in all_pages_data:
         page_name = page_data['name']
@@ -343,35 +342,63 @@ def generate_summary_csvs(all_pages_data, output_dir):
                     'pages': [page_name]
                 }
             else:
-                # Component exists, merge properties and add page
+                # Component exists, check for inconsistencies (excluding x,y coordinates)
                 existing = all_components[comp_id]
                 if page_name not in existing['pages']:
                     existing['pages'].append(page_name)
                 
-                # Update properties by merging - keep the most common values or note conflicts
-                new_props = format_properties(attrs)
-                if new_props and new_props != existing['properties']:
-                    # For now, keep first occurrence but could implement merging logic
-                    # Could add conflict detection here if needed
-                    pass
-                    
-                # Update group_id and image_id if they were empty before
-                if not existing['group_id'] and attrs.get('group_id'):
-                    existing['group_id'] = attrs.get('group_id', '')
-                if not existing['image_id'] and attrs.get('image_id'):
-                    existing['image_id'] = attrs.get('image_id', '')
+                # Check for inconsistencies in non-coordinate fields
+                current_shape = comp_data['shape']
+                current_name = comp_data['value']
+                current_group_id = attrs.get('group_id', '')
+                current_image_id = attrs.get('image_id', '')
+                current_properties = format_properties(attrs)
+                
+                if current_shape != existing['shape']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent shape: '{existing['shape']}' vs '{current_shape}' on page {page_name}")
+                
+                if current_name != existing['name']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent name: '{existing['name']}' vs '{current_name}' on page {page_name}")
+                
+                if current_group_id and existing['group_id'] and current_group_id != existing['group_id']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent group_id: '{existing['group_id']}' vs '{current_group_id}' on page {page_name}")
+                
+                if current_image_id and existing['image_id'] and current_image_id != existing['image_id']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent image_id: '{existing['image_id']}' vs '{current_image_id}' on page {page_name}")
+                
+                if current_properties and existing['properties'] and current_properties != existing['properties']:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent properties: '{existing['properties']}' vs '{current_properties}' on page {page_name}")
+                
+                # Update empty fields with non-empty values
+                if not existing['group_id'] and current_group_id:
+                    existing['group_id'] = current_group_id
+                if not existing['image_id'] and current_image_id:
+                    existing['image_id'] = current_image_id
+                if not existing['properties'] and current_properties:
+                    existing['properties'] = current_properties
         
-        # Collect all wires
+        # Collect all wires (remove port_index as requested)
         for edge in page_data['edges']:
             all_wires.append({
                 'wire_id': edge['id'],
                 'from_component': edge['source'],
-                'from_port_index': edge['from_port'],
                 'to_component': edge['target'],
-                'to_port_index': edge['to_port'],
-                'path': '',
                 'page': page_name
             })
+    
+    # Print consistency warnings
+    if consistency_warnings:
+        print("\n" + "="*60)
+        print("COMPONENT CONSISTENCY WARNINGS")
+        print("="*60)
+        for warning in consistency_warnings:
+            print(warning)
+        print("="*60 + "\n")
     
     # Write summary components.csv (without x,y coordinates)
     summary_components_file = output_dir / 'summary_components.csv'
@@ -390,20 +417,17 @@ def generate_summary_csvs(all_pages_data, output_dir):
                 ';'.join(comp_data['pages'])
             ])
     
-    # Write summary wires.csv
+    # Write summary wires.csv (removed port_index as requested)
     summary_wires_file = output_dir / 'summary_wires.csv'
     with open(summary_wires_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['wire_id', 'from_component', 'from_port_index', 'to_component', 'to_port_index', 'path', 'page'])
+        writer.writerow(['wire_id', 'from_component', 'to_component', 'page'])
         
         for wire in all_wires:
             writer.writerow([
                 wire['wire_id'],
                 wire['from_component'],
-                wire['from_port_index'],
                 wire['to_component'],
-                wire['to_port_index'],
-                wire['path'],
                 wire['page']
             ])
 
