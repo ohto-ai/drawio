@@ -113,6 +113,103 @@ function loadGraphXML(url, readonly = false) {
         });
 }
 
+/**
+ * 启用编辑功能
+ * @returns {boolean} 成功返回true，失败返回false
+ */
+function enableEditing() {
+    console.log('enableEditing: Enabling editor');
+    
+    try {
+        const editorUi = window.sb && window.sb.editorUi;
+        if (!editorUi) {
+            console.error('enableEditing: editorUi not available');
+            return false;
+        }
+        
+        // 启用图形编辑
+        if (editorUi.editor && editorUi.editor.graph) {
+            editorUi.editor.graph.setEnabled(true);
+            console.log('enableEditing: Graph editing enabled');
+        }
+        
+        // 设置当前文件为可编辑
+        const currentFile = editorUi.getCurrentFile();
+        if (currentFile && typeof currentFile.setEditable === 'function') {
+            currentFile.setEditable(true);
+            console.log('enableEditing: File set as editable');
+        }
+        
+        console.log('enableEditing: Editing enabled successfully');
+        return true;
+    } catch (error) {
+        console.error('enableEditing: Error enabling editing', error);
+        return false;
+    }
+}
+
+/**
+ * 禁用编辑功能（只读模式）
+ * @returns {boolean} 成功返回true，失败返回false
+ */
+function disableEditing() {
+    console.log('disableEditing: Disabling editor');
+    
+    try {
+        const editorUi = window.sb && window.sb.editorUi;
+        if (!editorUi) {
+            console.error('disableEditing: editorUi not available');
+            return false;
+        }
+        
+        // 禁用图形编辑
+        if (editorUi.editor && editorUi.editor.graph) {
+            editorUi.editor.graph.setEnabled(false);
+            console.log('disableEditing: Graph editing disabled');
+        }
+        
+        // 设置当前文件为不可编辑
+        const currentFile = editorUi.getCurrentFile();
+        if (currentFile && typeof currentFile.setEditable === 'function') {
+            currentFile.setEditable(false);
+            console.log('disableEditing: File set as non-editable');
+        }
+        
+        console.log('disableEditing: Editing disabled successfully');
+        return true;
+    } catch (error) {
+        console.error('disableEditing: Error disabling editing', error);
+        return false;
+    }
+}
+
+/**
+ * 检查当前是否启用编辑
+ * @returns {boolean} 如果启用编辑返回true，否则返回false
+ */
+function isEditingEnabled() {
+    try {
+        const editorUi = window.sb && window.sb.editorUi;
+        if (!editorUi) {
+            return false;
+        }
+        
+        // 检查图形是否启用
+        const graphEnabled = editorUi.editor && editorUi.editor.graph ? 
+            editorUi.editor.graph.isEnabled() : false;
+        
+        // 检查文件是否可编辑
+        const currentFile = editorUi.getCurrentFile();
+        const fileEditable = currentFile && typeof currentFile.isEditable === 'function' ? 
+            currentFile.isEditable() : true;
+        
+        return graphEnabled && fileEditable;
+    } catch (error) {
+        console.error('isEditingEnabled: Error checking editing status', error);
+        return false;
+    }
+}
+
 
 
 /**
@@ -267,6 +364,11 @@ window.addEventListener("load", () => {
         
         // 将loadGraphXML函数添加到window.ohtoai下
         window.ohtoai.loadGraphXML = loadGraphXML;
+        
+        // 将编辑控制函数添加到window.ohtoai下
+        window.ohtoai.enableEditing = enableEditing;
+        window.ohtoai.disableEditing = disableEditing;
+        window.ohtoai.isEditingEnabled = isEditingEnabled;
 
         setTimeout(() => {
             var url = "demo/manual.drawio.xml"; // 默认 URL
