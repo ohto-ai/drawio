@@ -370,6 +370,37 @@ window.addEventListener("load", () => {
         window.ohtoai.disableEditing = disableEditing;
         window.ohtoai.isEditingEnabled = isEditingEnabled;
 
+        // Add defensive fix for context menu in readonly mode
+        const editorUi = window.sb.editorUi;
+        if (editorUi && editorUi.menus) {
+            const originalCreatePopupMenu = editorUi.menus.createPopupMenu;
+            editorUi.menus.createPopupMenu = function(menu, cell, evt) {
+                try {
+                    // In readonly mode, clear selection before showing context menu to prevent firstChild errors
+                    if (editorUi.editor && editorUi.editor.graph && !editorUi.editor.graph.isEnabled()) {
+                        const graph = editorUi.editor.graph;
+                        if (graph.getSelectionCount() > 0) {
+                            console.log('Clearing selection before context menu in readonly mode');
+                            graph.clearSelection();
+                        }
+                    }
+                    return originalCreatePopupMenu.apply(this, arguments);
+                } catch (error) {
+                    console.error('Context menu creation error:', error);
+                    // Clear selection if error occurs and try again
+                    if (editorUi.editor && editorUi.editor.graph) {
+                        editorUi.editor.graph.clearSelection();
+                    }
+                    try {
+                        return originalCreatePopupMenu.apply(this, arguments);
+                    } catch (secondError) {
+                        console.error('Context menu creation failed twice:', secondError);
+                        return; // Give up
+                    }
+                }
+            };
+        }
+
         setTimeout(() => {
             var url = "demo/manual.drawio.xml"; // 默认 URL
             if (url) {
