@@ -4,6 +4,7 @@ classes
 node_modules
 .vscode/settings.json
 netlist_output/
+cycles_output/
 
 # Python cache files
 __pycache__/
