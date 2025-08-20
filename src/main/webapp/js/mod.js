@@ -53,11 +53,11 @@ function findObjectsWith(root, keyName, maxDepth = 3) {
 /**
  * 加载drawio文件的接口
  * @param {string} url - 文件的URL
- * @param {Object} other_args - 其他参数，支持 {readonly: boolean}
+ * @param {boolean} readonly - 是否只读模式，默认为false
  * @returns {Promise<LocalFile>} 加载的文件对象
  */
-function loadGraphXML(url, other_args = {}) {
-    console.log(`loadGraphXML: Loading diagram from ${url}`, other_args);
+function loadGraphXML(url, readonly = false) {
+    console.log(`loadGraphXML: Loading diagram from ${url}`, { readonly });
     
     // 获取当前editorUi实例
     const editorUi = window.sb && window.sb.editorUi;
@@ -75,101 +75,45 @@ function loadGraphXML(url, other_args = {}) {
         }
     }
     
-    // 使用DiagramLoader加载新文件
-    const loader = new DiagramLoader(editorUi);
-    const readonly = other_args.readonly || false;
-    
-    return loader.loadFromUrl(url, readonly);
+    // 从URL获取XML数据并使用editorUi的fileLoaded方法来正确加载文件
+    return fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+            }
+            return response.text();
+        })
+        .then(xmlData => {
+            // 获取文件名
+            const fileName = url.split('/').pop() || 'diagram.drawio.xml';
+            
+            // 创建LocalFile实例 - 这是DrawIO正确的文件加载方式
+            const localFile = new LocalFile(editorUi, xmlData, fileName, true);
+            
+            // 如果需要只读模式，设置文件为不可编辑
+            if (readonly) {
+                localFile.setEditable(false);
+            }
+            
+            // 使用editorUi的fileLoaded方法来正确加载文件
+            // 这会处理所有必要的状态更新、UI刷新等
+            editorUi.fileLoaded(localFile);
+            
+            // 如果是只读模式，禁用图形编辑
+            if (readonly && editorUi.editor && editorUi.editor.graph) {
+                editorUi.editor.graph.setEnabled(false);
+            }
+            
+            console.log('loadGraphXML: File loaded successfully', { fileName, readonly });
+            return localFile;
+        })
+        .catch(error => {
+            console.error('loadGraphXML: Error loading file', error);
+            throw error;
+        });
 }
 
-/**
- * DiagramLoader：负责加载和设置diagram
- * 支持只读模式和切换为可编辑
- */
-class DiagramLoader {
-    /**
-     * @param {App} editorUi
-     */
-    constructor(editorUi) {
-        this.editorUi = editorUi || window.sb.editorUi;
-        this._readonly = false;
-    }
 
-    /**
-     * 从URL加载diagram
-     * @param {string} url
-     * @param {boolean} readonly 是否只读
-     * @returns {Promise<LocalFile>}
-     */
-    loadFromUrl(url, readonly = false) {
-        this._readonly = readonly;
-        return fetch(url)
-            .then(resp => {
-                const fileName = url.split('/').pop();
-                const lastModified = resp.headers.get('Last-Modified');
-                return resp.text().then(xml => ({
-                    xml,
-                    fileName,
-                    url,
-                    lastModified
-                }));
-            })
-            .then(({ xml, fileName, url, lastModified }) => {
-                const doc = mxUtils.parseXml(xml);
-                var root = doc.documentElement;
-
-                this.editorUi.editor.setGraphXml(root);
-                this.editorUi.editor.setModified(false);
-
-                var file = new LocalFile(this.editorUi, doc, fileName);
-                this.editorUi.setCurrentFile(file);
-                this.editorUi.updateDocumentTitle();
-                this.editorUi.descriptorChanged();
-
-                file.addListener(mxEvent.CHANGE, function(sender, evt){
-                    console.log('文件内容改变了');
-                });
-
-                // 设置只读
-                this.setReadonly(this._readonly);
-
-                return file;
-            });
-    }
-
-    /**
-     * 设置只读或可编辑
-     * @param {boolean} readonly
-     */
-    setReadonly(readonly = true) {
-        this._readonly = readonly;
-        if (this.editorUi && this.editorUi.editor && this.editorUi.editor.graph) {
-            this.editorUi.editor.graph.setEnabled(!readonly);
-        }
-        // 可根据需要禁用/启用更多UI控件
-    }
-
-    /**
-     * 开启编辑模式
-     */
-    enableEdit() {
-        this.setReadonly(false);
-    }
-
-    /**
-     * 开启只读模式
-     */
-    enableReadonly() {
-        this.setReadonly(true);
-    }
-
-    /**
-     * 当前是否只读
-     */
-    isReadonly() {
-        return this._readonly;
-    }
-}
 
 /**
  * StripedOverlayManager（基于 mxCellHighlight，不修改 style）
@@ -321,14 +265,13 @@ window.addEventListener("load", () => {
     waitForEditorUi(() => {
         console.log("Plugin loaded: StripedOverlayManager");
         
-        // 将loadGraphXML函数添加到全局window对象，方便调用
-        window.loadGraphXML = loadGraphXML;
+        // 将loadGraphXML函数添加到window.ohtoai下
+        window.ohtoai.loadGraphXML = loadGraphXML;
 
         setTimeout(() => {
             var url = "demo/manual.drawio.xml"; // 默认 URL
             if (url) {
-                window.ohtoai.loader = new DiagramLoader(window.sb.editorUi);
-                window.ohtoai.loader.loadFromUrl(url, true).then(() => {
+                window.ohtoai.loadGraphXML(url, true).then(() => {
                     console.log("Diagram loaded, initializing StripedOverlayManager");
                     const graph = window.sb.editorUi.editor.graph;
                     window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
@@ -338,6 +281,8 @@ window.addEventListener("load", () => {
                         return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
                     });
                     // 如需手动停止高亮，可调用 manager.clearHighlight() 或 manager.stopAutoHighlight()
+                }).catch(error => {
+                    console.error("Failed to load diagram:", error);
                 });
             }
         }, 1000);
