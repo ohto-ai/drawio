@@ -326,6 +326,12 @@ def main():
         This script reads summary_components.csv and summary_wires.csv files,
         detects all cycles in the component connection graph, and generates
         individual draw.io XML files for each cycle with circular layout.
+        
+        Usage example:
+        1. First extract netlist: python3 extract_netlist.py src/main/webapp/demo -o netlist_out
+        2. Then detect cycles: python3 detect_cycles.py netlist_out -o cycles_out
+        
+        The generated XML files can be opened in draw.io to visualize the detected cycles.
         '''
     )
     parser.add_argument('input_dir', nargs='?', default='netlist_output',

@@ -460,11 +460,16 @@ if __name__ == "__main__":
         epilog='''
         This script generates CSV files for each page containing:
         - components.csv: Component information with position and properties
-        - wires.csv: Wire connections with port indices
+        - wires.csv: Wire connections (port indices removed for better compatibility)
         
         Additionally generates summary files:
         - summary_components.csv: All components across pages (no position data)  
-        - summary_wires.csv: All wire connections with page information
+        - summary_wires.csv: All wire connections with page information (no port indices)
+        
+        Features:
+        - Component consistency checking across pages (warns about inconsistencies in 
+          shape, name, group_id, properties - x,y coordinates are page-specific and ignored)
+        - Simplified wire format without port indices for better parsing reliability
         '''
     )
     parser.add_argument('input_dir', nargs='?', default='src/main/webapp/demo',
