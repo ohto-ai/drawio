@@ -1,0 +1,9 @@
+wire_id,from_component,from_port_index,to_component,to_port_index,path
+W1,C1,1,C2,8,
+W2,C2,4,C3,2,
+W3,C3,6,C6,4,
+W4,C6,2,C2,8,
+W5,C3,2,C8,1,
+W6,C6,7,C7,8,
+W7,C7,4,C10,1,
+W8,C10,1,C8,1,

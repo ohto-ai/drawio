@@ -1,0 +1,3 @@
+component_id,shape,name,x,y,width,height,group_id,image_id,properties
+C1,point,TestCMP1,50.0,50.0,20.0,20.0,,,alarm=1
+C2,line,TestCMP2,100.0,100.0,80.0,20.0,,,alarm=2

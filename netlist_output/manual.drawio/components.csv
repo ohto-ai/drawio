@@ -1,0 +1,11 @@
+component_id,shape,name,x,y,width,height,group_id,image_id,properties
+C1,point,CMP1,100.0,100.0,16.0,16.0,G1,pic1,alarm=1;prop2=3
+C2,line,CMP2,100.0,200.0,100.0,10.0,G2,pic2,alarm=2;prop2=2
+C3,line,CMP3,300.0,250.0,10.0,200.0,G3,pic3,alarm=3;prop2=3
+C4,mark,Text4,120.0,80.0,60.0,24.0,,,font_size=16
+C5,mark,Text5,320.0,240.0,60.0,24.0,,,font_size=14
+C6,face,CMP6,100.0,400.0,100.0,200.0,G3,pic6,alarm=1;prop2=3
+C7,line,CMP7,120.0,650.0,200.0,10.0,G1,pic7,alarm=5;prop2=1
+C8,point,CMP8,400.0,100.0,16.0,16.0,G2,pic8,prop1=3;prop2=1
+C9,mark,Text9,400.0,80.0,60.0,24.0,,,font_size=14
+C10,point,CMP10,400.0,650.0,16.0,16.0,G1,pic10,prop1=1;prop2=5

@@ -1,0 +1,11 @@
+component_id,shape,name,group_id,image_id,properties,pages
+C1,point,TestCMP1,,,alarm=1,test_multipage.drawio_Page-1;test_multipage.drawio_Page-2;manual.drawio
+C2,line,TestCMP2,,,alarm=2,test_multipage.drawio_Page-1;manual.drawio
+C3,point,TestCMP3,,,alarm=1,test_multipage.drawio_Page-2;manual.drawio
+C4,mark,Text4,,,font_size=16,manual.drawio
+C5,mark,Text5,,,font_size=14,manual.drawio
+C6,face,CMP6,G3,pic6,alarm=1;prop2=3,manual.drawio
+C7,line,CMP7,G1,pic7,alarm=5;prop2=1,manual.drawio
+C8,point,CMP8,G2,pic8,prop1=3;prop2=1,manual.drawio
+C9,mark,Text9,,,font_size=14,manual.drawio
+C10,point,CMP10,G1,pic10,prop1=1;prop2=5,manual.drawio
