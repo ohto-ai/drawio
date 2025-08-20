@@ -643,6 +643,11 @@ mxStencilRegistry.allowEval = false;
 		
 		editorUi.actions.addAction('paste', function()
 		{
+			// Check if graph is enabled before allowing paste in readonly mode
+			if (editorUi.editor && editorUi.editor.graph && !editorUi.editor.graph.isEnabled())
+			{
+				return; // Don't paste in readonly mode
+			}
 			cloneSysCLipboardToMx();
 			origPaste();
 		}, false, '', Editor.ctrlKey + '+V');
@@ -651,6 +656,11 @@ mxStencilRegistry.allowEval = false;
 
 		editorUi.actions.addAction('pasteHere', function()
 		{
+			// Check if graph is enabled before allowing paste in readonly mode
+			if (editorUi.editor && editorUi.editor.graph && !editorUi.editor.graph.isEnabled())
+			{
+				return; // Don't paste in readonly mode
+			}
 			cloneSysCLipboardToMx();
 			origPasteHere();
 		});
