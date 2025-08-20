@@ -217,25 +217,21 @@ function isEditingEnabled() {
  * 支持两类高亮：条件高亮和指定高亮，具有优先级系统
  */
 class StripedOverlayManager {
-    constructor(graph, highlightColor = '#ff0000', strokeWidth = 4) {
+    constructor(graph, strokeWidth = 4) {
         this.graph = graph;
-        this.highlightColor = highlightColor;
         this.strokeWidth = strokeWidth;
         this.cellsWithHighlight = new Set();
         this.highlights = new Map();
-        this._borderColors = ['#ff0000', '#ffff00'];
-        this._colorIndex = 0;
         this._borderTimer = null;
         this._interval = 300;
-        this._autoHighlightTimer = null;
         
-        // 新增：多个条件高亮支持
+        // 多个条件高亮支持
         this._conditionalHighlights = [];  // [{id, callback, colors, colorIndex}]
         
-        // 新增：多个指定高亮支持  
+        // 多个指定高亮支持  
         this._specificHighlights = [];     // [{id, cells, colors, colorIndex}]
         
-        // 新增：追踪每个cell的高亮信息 {cell -> {type, id, highlight}}
+        // 追踪每个cell的高亮信息 {cell -> {type, id, highlight}}
         this._cellHighlightInfo = new Map();
     }
 
@@ -414,95 +410,28 @@ class StripedOverlayManager {
         this._cellHighlightInfo.clear();
     }
 
-    setHighlightColors(colors) {
-        if (Array.isArray(colors) && colors.length > 0) {
-            this._borderColors = colors;
-            this._colorIndex = 0; // 重置颜色索引
-            // 兼容性：如果有高亮存在，更新颜色
-            this.cellsWithHighlight.forEach(cell => {
-                const hl = this.highlights.get(cell);
-                if (hl) {
-                    hl.setHighlightColor(this._getHighlightColor());
-                    // 重新高亮以刷新颜色
-                    hl.hide();
-                    hl.highlight(this.graph.view.getState(cell));
-                }
-            });
-        }
-    }
-
-    // 应用高亮
-    applyHighlight(cells) {
-        cells.forEach(cell => {
-            if (!this.cellsWithHighlight.has(cell)) {
-                const hl = new mxCellHighlight(
-                    this.graph,
-                    this._getHighlightColor(),
-                    this.strokeWidth
-                );
-                hl.highlight(this.graph.view.getState(cell));
-                this.highlights.set(cell, hl);
-                this.cellsWithHighlight.add(cell);
-            }
-        });
-        this._startBorderTimer();
-    }
-
-    // 获取当前高亮色
-    _getHighlightColor() {
-        return this._borderColors[this._colorIndex];
-    }
-
-    // 清除高亮
+    /**
+     * 清除高亮
+     */
     clearHighlight() {
         if (this._borderTimer) {
             clearInterval(this._borderTimer);
             this._borderTimer = null;
         }
-        if (this._autoHighlightTimer) {
-            clearInterval(this._autoHighlightTimer);
-            this._autoHighlightTimer = null;
-        }
         this.highlights.forEach(hl => hl.hide());
         this.highlights.clear();
         this.cellsWithHighlight.clear();
         
-        // 新增：清除所有高亮定义
+        // 清除所有高亮定义
         this._conditionalHighlights = [];
         this._specificHighlights = [];
         this._cellHighlightInfo.clear();
-    }
-
-    // 更新高亮
-    updateHighlight(callback) {
-        const model = this.graph.getModel();
-        model.filterDescendants(cell => {
-            const shouldHighlight = callback(cell);
-            const hasHighlight = this.cellsWithHighlight.has(cell);
-
-            if (shouldHighlight && !hasHighlight) {
-                this.applyHighlight([cell]);
-            } else if (!shouldHighlight && hasHighlight) {
-                const hl = this.highlights.get(cell);
-                if (hl) hl.hide();
-                this.highlights.delete(cell);
-                this.cellsWithHighlight.delete(cell);
-            }
-            return false;
-        });
-        if (this.cellsWithHighlight.size === 0 && this._borderTimer) {
-            clearInterval(this._borderTimer);
-            this._borderTimer = null;
-        }
     }
 
     // 启动蚂蚁线定时器
     _startBorderTimer() {
         if (this._borderTimer) return;
         this._borderTimer = setInterval(() => {
-            // 更新旧系统的颜色索引（向后兼容）
-            this._colorIndex = (this._colorIndex + 1) % this._borderColors.length;
-            
             // 更新所有高亮组的颜色索引
             this._conditionalHighlights.forEach(highlight => {
                 highlight.colorIndex = (highlight.colorIndex + 1) % highlight.colors.length;
@@ -536,40 +465,9 @@ class StripedOverlayManager {
                             info.colorIndex = specHighlight.colorIndex;
                         }
                     }
-                } else if (hl) {
-                    // 向后兼容：使用旧的颜色系统
-                    hl.setHighlightColor(this._getHighlightColor());
-                    hl.hide();
-                    hl.highlight(this.graph.view.getState(cell));
                 }
             });
         }, this._interval);
-    }
-
-    /**
-     * 自动高亮 alarm=1 的cell (向后兼容方法)
-     * @param {function} callback - 判断回调函数
-     * @param {number} intervalMs - 刷新间隔
-     */
-    startAutoHighlight(callback, intervalMs = 1000) {
-        if (this._autoHighlightTimer) return;
-        
-        // 使用新系统添加一个默认的条件高亮
-        this.addConditionalHighlight('_legacy_auto', callback, this._borderColors.slice());
-        
-        this._autoHighlightTimer = setInterval(() => {
-            this._refreshHighlights();
-        }, intervalMs);
-    }
-    
-    stopAutoHighlight() {
-        if (this._autoHighlightTimer) {
-            clearInterval(this._autoHighlightTimer);
-            this._autoHighlightTimer = null;
-        }
-        
-        // 移除默认的条件高亮
-        this.removeConditionalHighlight('_legacy_auto');
     }
 
     /**
@@ -672,12 +570,13 @@ window.addEventListener("load", () => {
                     console.log("Diagram loaded, initializing StripedOverlayManager");
                     const graph = window.sb.editorUi.editor.graph;
                     window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
-                    window.ohtoai.stripedOverlayManager.startAutoHighlight(cell => {
+                    window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
                         if (!cell || !cell.value) return false;
                         if (typeof cell.value === "string") return false;
                         return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
-                    });
-                    // 如需手动停止高亮，可调用 manager.clearHighlight() 或 manager.stopAutoHighlight()
+                    }, ['#ff0000', '#ffff00']);
+                    window.ohtoai.stripedOverlayManager.refresh();
+                    // 如需手动停止高亮，可调用 manager.clearHighlight()
                 }).catch(error => {
                     console.error("Failed to load diagram:", error);
                 });
