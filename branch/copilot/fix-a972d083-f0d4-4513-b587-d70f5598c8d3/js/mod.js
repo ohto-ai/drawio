@@ -75,6 +75,17 @@ function loadGraphXML(url, readonly = false) {
         }
     }
     
+    // 如果是只读模式，先设置graph为只读状态，这样在文件加载时action状态就会正确
+    if (readonly && editorUi.editor && editorUi.editor.graph) {
+        console.log('loadGraphXML: Setting graph to readonly before loading file');
+        editorUi.editor.graph.setEnabled(false);
+        
+        // 立即更新action状态以确保paste等操作被正确禁用
+        if (editorUi.updateActionStates) {
+            editorUi.updateActionStates();
+        }
+    }
+    
     // 从URL获取XML数据并使用editorUi的fileLoaded方法来正确加载文件
     return fetch(url)
         .then(response => {
@@ -99,9 +110,17 @@ function loadGraphXML(url, readonly = false) {
             // 这会处理所有必要的状态更新、UI刷新等
             editorUi.fileLoaded(localFile);
             
-            // 如果是只读模式，禁用图形编辑
+            // 确保只读模式在文件加载后仍然生效
             if (readonly && editorUi.editor && editorUi.editor.graph) {
+                // 再次确保graph处于只读状态
                 editorUi.editor.graph.setEnabled(false);
+                
+                // 强制更新所有action状态，包括paste actions
+                if (editorUi.updateActionStates) {
+                    editorUi.updateActionStates();
+                }
+                
+                console.log('loadGraphXML: Readonly mode enforced after file load');
             }
             
             console.log('loadGraphXML: File loaded successfully', { fileName, readonly });
