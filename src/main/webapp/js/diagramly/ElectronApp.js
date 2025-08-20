@@ -1877,6 +1877,11 @@ mxStencilRegistry.allowEval = false;
 		var file = this.getCurrentFile();
 		var syncEnabled = file != null && file.fileObject != null;
 		this.actions.get('synchronize').setEnabled(syncEnabled);
+		
+		// Ensure paste action states are updated based on graph enabled state
+		if (this.updatePasteActionStates) {
+			this.updatePasteActionStates();
+		}
 	};
 	
 	EditorUi.prototype.saveLocalFile = function(data, filename, mimeType, base64Encoded, format, allowBrowser)
