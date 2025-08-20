@@ -4,6 +4,12 @@ classes
 node_modules
 .vscode/settings.json
 netlist_output/
+
+# Test and demo files for enhanced highlighting
+test_highlight_enhancement.js
+comprehensive_highlight_tests.js
+demo_enhanced_highlights.html
+
 src/main/webapp/WEB-INF/lib/animal-sniffer-annotations-*.jar
 src/main/webapp/WEB-INF/lib/annotations-*.jar
 src/main/webapp/WEB-INF/lib/api-common-*.jar
