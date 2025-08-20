@@ -26,6 +26,8 @@ def load_components(components_file):
                     'id': row['component_id'],
                     'shape': row['shape'],
                     'name': row['name'],
+                    'width': float(row.get('width', 100)) if row.get('width') else 100,
+                    'height': float(row.get('height', 60)) if row.get('height') else 60,
                     'group_id': row.get('group_id', ''),
                     'image_id': row.get('image_id', ''),
                     'properties': row.get('properties', ''),
@@ -162,8 +164,8 @@ def remove_duplicate_cycles(cycles):
     return unique_cycles
 
 
-def calculate_circular_positions(cycle_components, center_x=400, center_y=300, radius=200):
-    """Calculate circular positions for components in a cycle"""
+def calculate_circular_positions(cycle_components, components, center_x=400, center_y=300, radius=200):
+    """Calculate circular positions for components in a cycle, using actual component dimensions"""
     positions = {}
     num_components = len(cycle_components)
     
@@ -175,11 +177,16 @@ def calculate_circular_positions(cycle_components, center_x=400, center_y=300, r
         x = center_x + radius * math.cos(angle)
         y = center_y + radius * math.sin(angle)
         
+        # Use actual component dimensions if available
+        comp_info = components.get(comp_id, {})
+        width = comp_info.get('width', 100)
+        height = comp_info.get('height', 60)
+        
         positions[comp_id] = {
             'x': x,
             'y': y,
-            'width': 100,
-            'height': 60
+            'width': width,
+            'height': height
         }
     
     return positions
@@ -188,8 +195,8 @@ def calculate_circular_positions(cycle_components, center_x=400, center_y=300, r
 def generate_cycle_xml(cycle, components, cycle_index, wires, output_dir):
     """Generate draw.io XML file for a single cycle with circular layout"""
     
-    # Calculate positions
-    positions = calculate_circular_positions(cycle)
+    # Calculate positions using actual component dimensions
+    positions = calculate_circular_positions(cycle, components)
     
     # Create XML structure
     root = ET.Element('mxfile', {
@@ -361,6 +368,11 @@ def main():
         This script reads summary_components.csv and summary_wires.csv files,
         detects all cycles in the component connection graph, and generates
         individual draw.io XML files for each cycle with circular layout.
+        
+        Features:
+        - Preserves original component dimensions (width/height) from netlist data
+        - Maintains component IDs, shapes, and all properties in generated XML
+        - Uses circular layout with actual component sizes for accurate visualization
         
         Usage example:
         1. First extract netlist: python3 extract_netlist.py src/main/webapp/demo -o netlist_out

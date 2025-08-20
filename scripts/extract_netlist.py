@@ -324,9 +324,12 @@ def generate_page_csvs(page_data, output_dir):
     return generated_files
 
 def generate_summary_csvs(all_pages_data, output_dir):
-    """
-    Generate summary CSV files consolidating all pages
+    """Generate summary CSV files consolidating all pages
     Returns list of generated file paths
+    
+    Note: summary_components.csv includes width,height from component data.
+    For multi-page components with different dimensions, uses first occurrence
+    and warns about inconsistencies.
     """
     generated_files = []
     
@@ -346,6 +349,8 @@ def generate_summary_csvs(all_pages_data, output_dir):
                     'id': comp_id,
                     'shape': comp_data['shape'],
                     'name': comp_data['value'],
+                    'width': comp_data['width'],
+                    'height': comp_data['height'],
                     'group_id': attrs.get('group_id', ''),
                     'image_id': attrs.get('image_id', ''),
                     'properties': format_properties(attrs),
@@ -360,6 +365,8 @@ def generate_summary_csvs(all_pages_data, output_dir):
                 # Check for inconsistencies in non-coordinate fields
                 current_shape = comp_data['shape']
                 current_name = comp_data['value']
+                current_width = comp_data['width']
+                current_height = comp_data['height']
                 current_group_id = attrs.get('group_id', '')
                 current_image_id = attrs.get('image_id', '')
                 current_properties = format_properties(attrs)
@@ -371,6 +378,17 @@ def generate_summary_csvs(all_pages_data, output_dir):
                 if current_name != existing['name']:
                     consistency_warnings.append(
                         f"WARNING: Component {comp_id} has inconsistent name: '{existing['name']}' vs '{current_name}' on page {page_name}")
+                
+                # Check for significant dimension differences (tolerance for rounding)
+                if abs(current_width - existing['width']) > 0.1:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent width: {existing['width']} vs {current_width} on page {page_name}")
+                    # Use first occurrence dimensions
+                
+                if abs(current_height - existing['height']) > 0.1:
+                    consistency_warnings.append(
+                        f"WARNING: Component {comp_id} has inconsistent height: {existing['height']} vs {current_height} on page {page_name}")
+                    # Use first occurrence dimensions
                 
                 if current_group_id and existing['group_id'] and current_group_id != existing['group_id']:
                     consistency_warnings.append(
@@ -410,17 +428,19 @@ def generate_summary_csvs(all_pages_data, output_dir):
             print(warning)
         print("="*60 + "\n")
     
-    # Write summary components.csv (without x,y coordinates)
+    # Write summary components.csv (now includes width,height)
     summary_components_file = output_dir / 'summary_components.csv'
     with open(summary_components_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['component_id', 'shape', 'name', 'group_id', 'image_id', 'properties', 'pages'])
+        writer.writerow(['component_id', 'shape', 'name', 'width', 'height', 'group_id', 'image_id', 'properties', 'pages'])
         
         for comp_id, comp_data in all_components.items():
             writer.writerow([
                 comp_id,
                 comp_data['shape'],
                 comp_data['name'],
+                comp_data['width'],
+                comp_data['height'],
                 comp_data['group_id'],
                 comp_data['image_id'],
                 comp_data['properties'],
@@ -478,13 +498,14 @@ if __name__ == "__main__":
         - wires.csv: Wire connections (port indices removed for better compatibility)
         
         Additionally generates summary files:
-        - summary_components.csv: All components across pages (no position data)  
+        - summary_components.csv: All components across pages (includes width,height from original data)  
         - summary_wires.csv: All wire connections with page information (no port indices)
         
         Features:
         - Component consistency checking across pages (warns about inconsistencies in 
-          shape, name, group_id, properties - x,y coordinates are page-specific and ignored)
+          shape, name, width, height, group_id, properties - x,y coordinates are page-specific and ignored)
         - Simplified wire format without port indices for better parsing reliability
+        - Preserves component dimensions in summary for accurate cycle visualization
         '''
     )
     parser.add_argument('input_dir', nargs='?', default='src/main/webapp/demo',
