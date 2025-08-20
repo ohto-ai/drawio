@@ -273,7 +273,9 @@ def extract_vertices_and_edges(file_path):
 def generate_page_csvs(page_data, output_dir):
     """
     Generate components.csv and wires.csv for a single page
+    Returns list of generated file paths
     """
+    generated_files = []
     page_dir = output_dir / page_data['name']
     page_dir.mkdir(parents=True, exist_ok=True)
     
@@ -302,6 +304,8 @@ def generate_page_csvs(page_data, output_dir):
                 properties
             ])
     
+    generated_files.append(components_file)
+    
     # Generate wires.csv (removed port_index as requested)
     wires_file = page_dir / 'wires.csv'
     with open(wires_file, 'w', newline='', encoding='utf-8') as f:
@@ -315,11 +319,17 @@ def generate_page_csvs(page_data, output_dir):
                 edge['target'],
                 ''  # path - empty for now
             ])
+    
+    generated_files.append(wires_file)
+    return generated_files
 
 def generate_summary_csvs(all_pages_data, output_dir):
     """
     Generate summary CSV files consolidating all pages
+    Returns list of generated file paths
     """
+    generated_files = []
+    
     # Collect all components across pages
     all_components = {}
     all_wires = []
@@ -417,6 +427,8 @@ def generate_summary_csvs(all_pages_data, output_dir):
                 ';'.join(comp_data['pages'])
             ])
     
+    generated_files.append(summary_components_file)
+    
     # Write summary wires.csv (removed port_index as requested)
     summary_wires_file = output_dir / 'summary_wires.csv'
     with open(summary_wires_file, 'w', newline='', encoding='utf-8') as f:
@@ -430,6 +442,9 @@ def generate_summary_csvs(all_pages_data, output_dir):
                 wire['to_component'],
                 wire['page']
             ])
+    
+    generated_files.append(summary_wires_file)
+    return generated_files
 
 def merge_diagrams(paths):
     """
@@ -507,22 +522,26 @@ if __name__ == "__main__":
         for f in files:
             print(f"  {f}")
     
-    # Generate CSV files for each page
+    # Generate CSV files for each page and track generated files
+    generated_files = []
     for page_data in all_pages_data:
         if args.verbose:
             print(f"Generating CSV files for page: {page_data['name']}")
             print(f"  Components: {len(page_data['vertices'])}")
             print(f"  Wires: {len(page_data['edges'])}")
-        generate_page_csvs(page_data, output_dir)
+        page_files = generate_page_csvs(page_data, output_dir)
+        generated_files.extend(page_files)
     
-    # Generate summary CSV files
+    # Generate summary CSV files and track them
     if args.verbose:
         print("Generating summary CSV files...")
-    generate_summary_csvs(all_pages_data, output_dir)
+    summary_files = generate_summary_csvs(all_pages_data, output_dir)
+    generated_files.extend(summary_files)
     
     print(f"\nNetlist export completed! Output saved to: {output_dir}")
     print("Generated files:")
-    for file_path in sorted(output_dir.rglob("*.csv")):
+    # Only show files that were actually generated in this run
+    for file_path in generated_files:
         print(f"  {file_path.relative_to(output_dir)}")
         
     if args.verbose:

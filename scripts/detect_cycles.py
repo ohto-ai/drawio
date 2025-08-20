@@ -227,8 +227,8 @@ def generate_cycle_xml(cycle, components, cycle_index, wires, output_dir):
     ET.SubElement(root_elem, 'mxCell', {'id': '0'})
     ET.SubElement(root_elem, 'mxCell', {'id': '1', 'parent': '0'})
     
-    # Add components
-    component_id_counter = 2
+    # Add components - preserve original component IDs, shapes and properties
+    next_id_counter = 2
     for comp_id in cycle:
         comp_info = components.get(comp_id, {})
         pos = positions[comp_id]
@@ -244,14 +244,52 @@ def generate_cycle_xml(cycle, components, cycle_index, wires, output_dir):
         else:  # face
             style = 'rounded=0;whiteSpace=wrap;html=1;'
         
-        # Add component as mxCell
-        cell = ET.SubElement(root_elem, 'mxCell', {
-            'id': str(component_id_counter),
-            'value': comp_info.get('name', comp_id),
-            'style': style,
-            'vertex': '1',
-            'parent': '1'
-        })
+        # Preserve component properties and metadata
+        group_id = comp_info.get('group_id', '')
+        image_id = comp_info.get('image_id', '')
+        properties = comp_info.get('properties', '')
+        
+        # Create object element to preserve component metadata if we have additional properties
+        if group_id or image_id or properties:
+            # Use object element to preserve all component attributes
+            obj_attrs = {
+                'id': comp_id,  # Preserve original component ID
+                'label': comp_info.get('name', comp_id),
+            }
+            
+            # Add additional attributes
+            if group_id:
+                obj_attrs['group_id'] = group_id
+            if image_id:
+                obj_attrs['image_id'] = image_id
+            if properties:
+                # Parse properties string and add as individual attributes
+                for prop in properties.split(';'):
+                    if '=' in prop:
+                        key, value = prop.split('=', 1)
+                        # Remove quotes if present
+                        if value.startswith('"') and value.endswith('"'):
+                            value = value[1:-1]
+                        obj_attrs[key] = value
+            
+            # Create object element
+            obj_elem = ET.SubElement(root_elem, 'object', obj_attrs)
+            
+            # Add mxCell inside object
+            cell = ET.SubElement(obj_elem, 'mxCell', {
+                'style': style,
+                'vertex': '1',
+                'parent': '1'
+            })
+        else:
+            # Simple case - use mxCell directly with original ID
+            cell = ET.SubElement(root_elem, 'mxCell', {
+                'id': comp_id,  # Preserve original component ID
+                'value': comp_info.get('name', comp_id),
+                'style': style,
+                'vertex': '1',
+                'parent': '1'
+            })
         
         # Add geometry
         geometry = ET.SubElement(cell, 'mxGeometry', {
@@ -262,41 +300,38 @@ def generate_cycle_xml(cycle, components, cycle_index, wires, output_dir):
             'as': 'geometry'
         })
         
-        component_id_counter += 1
+        next_id_counter += 1
     
-    # Add wires within the cycle
-    component_to_xml_id = {comp_id: str(i + 2) for i, comp_id in enumerate(cycle)}
-    
+    # Add wires within the cycle - use original component IDs as references
     for i in range(len(cycle)):
         from_comp = cycle[i]
         to_comp = cycle[(i + 1) % len(cycle)]
         
-        # Find corresponding wire
-        wire_id = None
+        # Find corresponding wire and preserve wire ID
+        wire_id = f"wire_{i}_cycle_{cycle_index}"  # Generate unique wire ID for cycle
         for wire in wires:
             if wire['from_component'] == from_comp and wire['to_component'] == to_comp:
-                wire_id = wire['wire_id']
+                wire_id = wire['wire_id']  # Use original wire ID if found
                 break
         
-        if wire_id:
-            wire_cell = ET.SubElement(root_elem, 'mxCell', {
-                'id': str(component_id_counter),
-                'value': '',
-                'style': 'endArrow=classic;html=1;rounded=0;',
-                'edge': '1',
-                'parent': '1',
-                'source': component_to_xml_id[from_comp],
-                'target': component_to_xml_id[to_comp]
-            })
-            
-            ET.SubElement(wire_cell, 'mxGeometry', {
-                'width': '50',
-                'height': '50',
-                'relative': '1',
-                'as': 'geometry'
-            })
-            
-            component_id_counter += 1
+        wire_cell = ET.SubElement(root_elem, 'mxCell', {
+            'id': wire_id,  # Preserve or generate meaningful wire ID
+            'value': '',
+            'style': 'endArrow=classic;html=1;rounded=0;',
+            'edge': '1',
+            'parent': '1',
+            'source': from_comp,  # Use original component ID directly
+            'target': to_comp     # Use original component ID directly
+        })
+        
+        ET.SubElement(wire_cell, 'mxGeometry', {
+            'width': '50',
+            'height': '50',
+            'relative': '1',
+            'as': 'geometry'
+        })
+        
+        next_id_counter += 1
     
     # Write XML file
     filename = f'cycle_{cycle_index}.drawio.xml'
