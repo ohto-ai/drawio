@@ -584,6 +584,112 @@ function saveToServer(filename, success, error) {
 }
 
 /**
+ * @brief 从服务器加载库文件
+ * @param {string} libraryPath - 服务器上的库文件路径
+ * @param {function} success - 成功回调函数
+ * @param {function} error - 错误回调函数
+ * @description 从服务器加载指定的库文件并添加到编辑器中
+ */
+function loadLibraryFromServer(libraryPath, success, error) {
+    console.log('loadLibraryFromServer: Loading library from server', { libraryPath });
+    
+    try {
+        const editorUi = window.sb && window.sb.editorUi;
+        if (!editorUi) {
+            throw new Error('editorUi not available');
+        }
+        
+        // 从服务器获取库文件
+        fetch(`/library/${libraryPath}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.text();
+        })
+        .then(libraryData => {
+            try {
+                // 解析库文件 (通常是XML格式)
+                const parser = new DOMParser();
+                const libraryDoc = parser.parseFromString(libraryData, 'application/xml');
+                
+                if (libraryDoc.getElementsByTagName('parsererror').length > 0) {
+                    throw new Error('Invalid library file format');
+                }
+                
+                // 获取库文件名
+                const libraryName = libraryPath.split('/').pop() || 'server_library';
+                
+                // 使用 DrawIO 的库管理系统加载库
+                if (editorUi.sidebar && editorUi.sidebar.addPalette) {
+                    // 创建库面板
+                    const entries = [];
+                    const shapes = libraryDoc.getElementsByTagName('shape');
+                    
+                    for (let i = 0; i < shapes.length; i++) {
+                        const shape = shapes[i];
+                        const data = shape.getAttribute('data');
+                        const title = shape.getAttribute('title') || `Shape ${i + 1}`;
+                        const aspect = shape.getAttribute('aspect') || 'fixed';
+                        
+                        if (data) {
+                            entries.push({
+                                data: data,
+                                title: title,
+                                aspect: aspect
+                            });
+                        }
+                    }
+                    
+                    // 添加库面板到侧边栏
+                    editorUi.sidebar.addPalette(libraryName, libraryName, true, function(content) {
+                        entries.forEach(entry => {
+                            content.appendChild(editorUi.sidebar.createVertexTemplate(
+                                entry.data, 
+                                100, 
+                                100, 
+                                entry.title
+                            ));
+                        });
+                    });
+                    
+                    console.log('loadLibraryFromServer: Library loaded successfully', { 
+                        libraryName, 
+                        shapesCount: entries.length 
+                    });
+                    
+                    if (success) {
+                        success({
+                            name: libraryName,
+                            shapesCount: entries.length,
+                            path: libraryPath
+                        });
+                    }
+                } else {
+                    throw new Error('Sidebar not available for library loading');
+                }
+                
+            } catch (parseError) {
+                console.error('loadLibraryFromServer: Error parsing library', parseError);
+                throw new Error('Failed to parse library file: ' + parseError.message);
+            }
+        })
+        .catch(err => {
+            console.error('loadLibraryFromServer: Error loading library', err);
+            if (error) {
+                error(err);
+            }
+        });
+        
+    } catch (err) {
+        console.error('loadLibraryFromServer: Error preparing library load', err);
+        if (error) {
+            error(err);
+        }
+    }
+}
+
+/**
  * @brief 模块初始化入口
  * @description 等待页面加载完成后初始化高亮管理器和相关功能
  */
@@ -623,6 +729,9 @@ window.addEventListener("load", () => {
         // 注册服务器保存功能到全局对象
         window.ohtoai.saveToServer = saveToServer;
         
+        // 注册服务器库加载功能到全局对象
+        window.ohtoai.loadLibraryFromServer = loadLibraryFromServer;
+        
         const editorUi = window.sb.editorUi;
         
         // 移除帮助菜单栏
@@ -642,15 +751,28 @@ window.addEventListener("load", () => {
                 };
             }
             
-            // 隐藏帮助菜单的DOM元素
-            setTimeout(() => {
+            // 更强力的帮助菜单隐藏方法
+            function hideHelpMenu() {
                 try {
                     console.log('正在查找并隐藏帮助菜单...');
                     
-                    // 查找所有元素中直接文本为"Help"的元素并隐藏
-                    const allElements = document.querySelectorAll('*');
+                    // 方法1: 通过菜单栏容器查找
+                    const menubarContainers = document.querySelectorAll('.geMenubar, .geMenubarContainer, [role="menubar"]');
                     let hiddenCount = 0;
                     
+                    menubarContainers.forEach(container => {
+                        const menuItems = container.querySelectorAll('a, div, span');
+                        menuItems.forEach(item => {
+                            if (item.textContent && item.textContent.trim() === 'Help') {
+                                item.style.display = 'none';
+                                hiddenCount++;
+                                console.log('已隐藏帮助菜单项:', item.tagName, item.className);
+                            }
+                        });
+                    });
+                    
+                    // 方法2: 全局搜索所有包含"Help"文本的元素
+                    const allElements = document.querySelectorAll('*');
                     allElements.forEach((element) => {
                         // 检查元素的直接文本内容（不包括子元素的文本）
                         let directText = '';
@@ -660,21 +782,71 @@ window.addEventListener("load", () => {
                             }
                         }
                         if (directText.trim() === 'Help') {
-                            element.style.display = 'none';
-                            hiddenCount++;
-                            console.log('已隐藏帮助菜单元素:', element.tagName, element.className);
+                            // 检查父元素是否像菜单项
+                            const parent = element.parentElement;
+                            if (parent && (parent.tagName === 'A' || parent.classList.contains('geMenuItem') || parent.role === 'menuitem')) {
+                                parent.style.display = 'none';
+                                hiddenCount++;
+                                console.log('已隐藏帮助菜单父元素:', parent.tagName, parent.className);
+                            } else {
+                                element.style.display = 'none';
+                                hiddenCount++;
+                                console.log('已隐藏帮助菜单元素:', element.tagName, element.className);
+                            }
                         }
                     });
+                    
+                    // 方法3: 通过XPath查找包含"Help"的链接和菜单项
+                    const xpathResult = document.evaluate(
+                        "//a[normalize-space(text())='Help'] | //div[normalize-space(text())='Help'] | //span[normalize-space(text())='Help']",
+                        document,
+                        null,
+                        XPathResult.UNORDERED_NODE_SNAPSHOT_TYPE,
+                        null
+                    );
+                    
+                    for (let i = 0; i < xpathResult.snapshotLength; i++) {
+                        const element = xpathResult.snapshotItem(i);
+                        element.style.display = 'none';
+                        hiddenCount++;
+                        console.log('通过XPath隐藏帮助菜单:', element.tagName, element.className);
+                    }
                     
                     if (hiddenCount > 0) {
                         console.log(`成功隐藏了 ${hiddenCount} 个帮助菜单元素`);
                     } else {
-                        console.log('未找到帮助菜单元素');
+                        console.log('未找到帮助菜单元素，将继续监控');
+                        // 如果没找到，可能是还没有加载完成，再次尝试
+                        setTimeout(hideHelpMenu, 1000);
                     }
                 } catch (e) {
                     console.error('隐藏帮助菜单按钮时出错:', e);
                 }
-            }, 2000); // 延迟2秒确保DOM完全加载
+            }
+            
+            // 立即执行一次
+            setTimeout(hideHelpMenu, 1000);
+            // 再延迟执行几次以确保捕获
+            setTimeout(hideHelpMenu, 3000);
+            setTimeout(hideHelpMenu, 5000);
+            
+            // 监听DOM变化，如果帮助菜单重新出现则再次隐藏
+            const observer = new MutationObserver(function(mutations) {
+                let shouldCheck = false;
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                        shouldCheck = true;
+                    }
+                });
+                if (shouldCheck) {
+                    setTimeout(hideHelpMenu, 500);
+                }
+            });
+            
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
         }
         
         // 修改文件菜单，移除客户端保存选项，添加服务器保存功能
@@ -724,11 +896,7 @@ window.addEventListener("load", () => {
                     // 只保留导入功能，移除导出功能以防止用户保存到客户端
                     editorUi.menus.addMenuItems(menu, ['import'], parent);
                     
-                    // 添加分隔符
-                    menu.addSeparator(parent);
-                    
-                    // 添加库功能
-                    editorUi.menus.addMenuItems(menu, ['newLibrary', 'openLibraryFrom'], parent);
+                    // 移除库功能菜单项 - 改为使用API直接加载服务器库
                     
                     // 添加其他必要的文件菜单项，但排除保存到客户端的功能
                     const currentFile = editorUi.getCurrentFile();
