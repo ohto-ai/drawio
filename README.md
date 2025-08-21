@@ -83,7 +83,7 @@ if (window.ohtoai.isEditingEnabled()) {
 }
 ```
 
-### 文件保存
+### 文件保存和库管理
 
 #### `saveToServer(filename, successCallback, errorCallback)`
 将当前图表保存到服务器。
@@ -101,6 +101,30 @@ window.ohtoai.saveToServer('my-diagram.drawio',
     },
     function(error) {
         console.error('保存失败:', error.message);
+    }
+);
+```
+
+#### `loadLibraryFromServer(libraryPath, successCallback, errorCallback)`
+从服务器加载形状库文件到侧边栏。
+
+**参数:**
+- `libraryPath` (string): 服务器上库文件的路径
+- `successCallback` (function, 可选): 加载成功的回调函数
+- `errorCallback` (function, 可选): 加载失败的回调函数
+
+**回调参数:**
+- `successCallback(data)`: data包含 `{title, shapesCount, library}` 
+- `errorCallback(error)`: error包含 `{message}` 
+
+**示例:**
+```javascript
+window.ohtoai.loadLibraryFromServer('custom-shapes.xml',
+    function(data) {
+        console.log(`库 "${data.title}" 加载成功，包含 ${data.shapesCount} 个形状`);
+    },
+    function(error) {
+        console.error('库加载失败:', error.message);
     }
 );
 ```
@@ -167,6 +191,9 @@ highlightManager.addConditionalHighlight('alarm_cells',
 
 // 刷新显示
 highlightManager.refresh();
+
+// 注意：系统会自动创建一个全局实例 window.ohtoai.stripedOverlayManager
+// 可以直接使用：window.ohtoai.stripedOverlayManager.addConditionalHighlight(...)
 ```
 
 ## Python工具脚本
@@ -371,3 +398,50 @@ drawio/
 ### 许可证
 
 本项目基于原始Draw.io项目构建，遵循相应的开源许可证。详见 [LICENSE](LICENSE) 文件。
+
+---
+
+## 快速参考
+
+### JavaScript API 快速索引
+
+| API函数 | 功能 | 返回值 |
+|---------|------|--------|
+| `loadGraphXML(url, readonly?)` | 加载图表文件 | `Promise<LocalFile>` |
+| `enableEditing()` | 启用编辑模式 | `boolean` |
+| `disableEditing()` | 禁用编辑模式 | `boolean` |
+| `isEditingEnabled()` | 检查编辑状态 | `boolean` |
+| `saveToServer(filename, success?, error?)` | 保存到服务器 | `void` |
+| `loadLibraryFromServer(path, success?, error?)` | 加载形状库 | `void` |
+
+### Python脚本快速索引
+
+| 脚本 | 功能 | 主要参数 |
+|------|------|----------|
+| `extract_netlist.py` | 提取网表数据 | `input_dir`, `-o output` |
+| `detect_cycles.py` | 检测网络环路 | `input_dir`, `-o output` |
+| `gen_graph.py` | 生成图表XML | 无参数 |
+| `random_topo.py` | 生成随机拓扑 | 无参数 |
+
+### 全局对象
+
+所有API都通过 `window.ohtoai` 对象提供：
+- `window.ohtoai.loadGraphXML()`
+- `window.ohtoai.stripedOverlayManager` (自动创建的高亮管理器实例)
+- 其他API函数...
+
+### 典型工作流程
+
+1. **网表分析流程:**
+   ```bash
+   python3 scripts/extract_netlist.py demo_files -o netlist_data
+   python3 scripts/detect_cycles.py netlist_data -o cycles
+   ```
+
+2. **图表操作流程:**
+   ```javascript
+   // 加载 -> 设置高亮 -> 编辑 -> 保存
+   window.ohtoai.loadGraphXML('diagram.xml')
+     .then(() => window.ohtoai.enableEditing())
+     .then(() => window.ohtoai.saveToServer('updated.xml'));
+   ```
