@@ -724,7 +724,6 @@ window.addEventListener("load", () => {
         }
 
         // 只读模式下的上下文菜单防御性修复
-        const editorUi = window.sb.editorUi;
         if (editorUi && editorUi.menus) {
             const originalCreatePopupMenu = editorUi.menus.createPopupMenu;
             editorUi.menus.createPopupMenu = function(menu, cell, evt) {
