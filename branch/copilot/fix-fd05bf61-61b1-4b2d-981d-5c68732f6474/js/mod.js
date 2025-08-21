@@ -530,7 +530,7 @@ function saveToServer(filename, success, error) {
         };
         
         // Send to server
-        fetch('http://localhost:8080/save', {
+        fetch('/save', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -728,7 +728,7 @@ window.addEventListener("load", () => {
                     menu.addSeparator(parent);
                     
                     // 添加库功能
-                    editorUi.menus.addMenuItems(menu, ['newLibrary', 'openLibrary'], parent);
+                    editorUi.menus.addMenuItems(menu, ['newLibrary', 'openLibraryFrom'], parent);
                     
                     // 添加其他必要的文件菜单项，但排除保存到客户端的功能
                     const currentFile = editorUi.getCurrentFile();
