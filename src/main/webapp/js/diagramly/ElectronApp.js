@@ -327,6 +327,18 @@ mxStencilRegistry.allowEval = false;
 		var editorUi = this;
 		var graph = this.editor.graph;
 		
+		// Disable grid and page view by default at initialization
+		if (graph) {
+			// Disable grid
+			graph.setGridEnabled(false);
+			
+			// Disable page view (page breaks)
+			graph.pageVisible = false;
+			if (graph.view) {
+				graph.view.pageBreaksVisible = false;
+			}
+		}
+		
 		electron.registerMsgListener('isModified', (uniqueId) =>
 		{
 			const currentFile = editorUi.getCurrentFile();
