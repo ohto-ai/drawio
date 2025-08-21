@@ -530,7 +530,7 @@ function saveToServer(filename, success, error) {
         };
         
         // Send to server
-        fetch('http://localhost:8080/save', {
+        fetch('/save', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -587,6 +587,58 @@ function saveToServer(filename, success, error) {
  * @brief 模块初始化入口
  * @description 等待页面加载完成后初始化高亮管理器和相关功能
  */
+// Override Menus.prototype.createMenubar to remove Help menu properly
+function removeHelpMenuFromMenubar() {
+    if (typeof Menus !== 'undefined' && Menus.prototype && Menus.prototype.createMenubar) {
+        // Store original createMenubar function
+        const originalCreateMenubar = Menus.prototype.createMenubar;
+        
+        // Override createMenubar to exclude help menu
+        Menus.prototype.createMenubar = function(container) {
+            // Create a modified version of defaultMenuItems without 'help'
+            const originalDefaultItems = this.defaultMenuItems;
+            let modifiedItems;
+            
+            if (typeof originalDefaultItems === 'string') {
+                modifiedItems = originalDefaultItems.split(' ').filter(item => item !== 'help');
+            } else if (Array.isArray(originalDefaultItems)) {
+                modifiedItems = originalDefaultItems.filter(item => item !== 'help');
+            } else {
+                // Fallback
+                modifiedItems = ["file", "edit", "view", "arrange", "extras"];
+            }
+            
+            // Temporarily override defaultMenuItems for this call
+            this.defaultMenuItems = modifiedItems;
+            
+            // Call original createMenubar
+            const result = originalCreateMenubar.call(this, container);
+            
+            // Restore original defaultMenuItems
+            this.defaultMenuItems = originalDefaultItems;
+            
+            console.log("Help menu removed from menubar during creation");
+            return result;
+        };
+        
+        return true;
+    }
+    return false;
+}
+
+// Try to remove Help menu immediately if Menus is available
+if (!removeHelpMenuFromMenubar()) {
+    // If not available yet, set up polling to catch it when it loads
+    let attempts = 0;
+    const maxAttempts = 50; // Poll for up to 5 seconds
+    const pollForMenus = setInterval(() => {
+        attempts++;
+        if (removeHelpMenuFromMenubar() || attempts >= maxAttempts) {
+            clearInterval(pollForMenus);
+        }
+    }, 100);
+}
+
 window.addEventListener("load", () => {
     window.ohtoai = window.ohtoai || {};
 
@@ -723,29 +775,21 @@ window.addEventListener("load", () => {
             }
         }
 
-        // 移除Help菜单和库相关菜单项
+        // Remove library-related menu items and fix context menu issues
         if (editorUi && editorUi.menus) {
-            // 从默认菜单项中移除help菜单
-            if (editorUi.menus.defaultMenuItems) {
-                editorUi.menus.defaultMenuItems = editorUi.menus.defaultMenuItems.filter(function(item) {
-                    return item !== 'help';
-                });
-                console.log('已从菜单栏移除Help菜单');
-            }
-            
-            // 移除文件菜单中的库相关选项
+            // Remove library-related options from file menu
             const originalFileMenu = editorUi.menus.get('file');
             if (originalFileMenu) {
                 const originalFileMenuFunc = originalFileMenu.funct;
                 originalFileMenu.funct = function(menu, parent) {
-                    // 调用原始文件菜单功能
+                    // Call original file menu function
                     originalFileMenuFunc.apply(this, arguments);
                     
-                    // 移除库相关菜单项
+                    // Remove library-related menu items
                     const menuItems = menu.div ? menu.div.querySelectorAll('.geMenuItem') : [];
                     menuItems.forEach(function(item) {
                         const text = item.textContent || '';
-                        // 移除"New Library"和"Open Library From"相关选项
+                        // Remove "New Library" and "Open Library From" related options
                         if (text.includes('Library') || text.includes('library')) {
                             item.style.display = 'none';
                         }
@@ -753,11 +797,11 @@ window.addEventListener("load", () => {
                 };
             }
             
-            // 只读模式下的上下文菜单防御性修复
+            // Context menu defensive fix for readonly mode
             const originalCreatePopupMenu = editorUi.menus.createPopupMenu;
             editorUi.menus.createPopupMenu = function(menu, cell, evt) {
                 try {
-                    // 在只读模式下显示上下文菜单前清除选择以防止firstChild错误
+                    // Clear selection before showing context menu in readonly mode to prevent firstChild error
                     if (editorUi.editor && editorUi.editor.graph && !editorUi.editor.graph.isEnabled()) {
                         const graph = editorUi.editor.graph;
                         if (graph.getSelectionCount() > 0) {
@@ -766,16 +810,16 @@ window.addEventListener("load", () => {
                     }
                     return originalCreatePopupMenu.apply(this, arguments);
                 } catch (error) {
-                    console.error('上下文菜单创建错误:', error);
-                    // 如果发生错误则清除选择并重试
+                    console.error('Context menu creation error:', error);
+                    // If error occurs, clear selection and retry
                     if (editorUi.editor && editorUi.editor.graph) {
                         editorUi.editor.graph.clearSelection();
                     }
                     try {
                         return originalCreatePopupMenu.apply(this, arguments);
                     } catch (secondError) {
-                        console.error('上下文菜单创建二次失败:', secondError);
-                        return; // 放弃处理
+                        console.error('Context menu creation second failure:', secondError);
+                        return; // Give up processing
                     }
                 }
             };
