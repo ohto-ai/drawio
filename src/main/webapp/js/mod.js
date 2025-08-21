@@ -494,11 +494,101 @@ class StripedOverlayManager {
 }
 
 /**
+ * @brief 服务器保存功能
+ * @description 将文件保存到服务器，而不是客户端下载
+ */
+function saveToServer(filename, success, error) {
+    console.log('saveToServer: Saving file to server', { filename });
+    
+    try {
+        const editorUi = window.sb && window.sb.editorUi;
+        if (!editorUi) {
+            throw new Error('editorUi not available');
+        }
+        
+        const currentFile = editorUi.getCurrentFile();
+        if (!currentFile) {
+            throw new Error('No current file to save');
+        }
+        
+        // Get the file data (XML content)
+        const fileData = currentFile.getData();
+        if (!fileData) {
+            throw new Error('No data to save');
+        }
+        
+        // Prepare the filename
+        let saveFilename = filename || currentFile.getTitle() || 'untitled';
+        if (!saveFilename.endsWith('.xml') && !saveFilename.endsWith('.drawio')) {
+            saveFilename += '.drawio';
+        }
+        
+        // Prepare request data
+        const requestData = {
+            filename: saveFilename,
+            content: fileData
+        };
+        
+        // Send to server
+        fetch('http://localhost:8080/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestData)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                console.log('saveToServer: File saved successfully', data);
+                
+                // Mark file as not modified since it's saved
+                currentFile.setModified(false);
+                
+                // Show success message
+                if (editorUi.editor && editorUi.editor.graph) {
+                    editorUi.editor.setStatus('文件已保存到服务器: ' + data.filename);
+                }
+                
+                if (success) {
+                    success(data);
+                }
+            } else {
+                throw new Error(data.error || 'Unknown error');
+            }
+        })
+        .catch(err => {
+            console.error('saveToServer: Error saving file', err);
+            
+            // Show error message
+            if (editorUi.editor && editorUi.editor.graph) {
+                editorUi.editor.setStatus('保存失败: ' + err.message);
+            }
+            
+            if (error) {
+                error(err);
+            }
+        });
+        
+    } catch (err) {
+        console.error('saveToServer: Error preparing save', err);
+        if (error) {
+            error(err);
+        }
+    }
+}
+
+/**
  * @brief 模块初始化入口
  * @description 等待页面加载完成后初始化高亮管理器和相关功能
  */
 window.addEventListener("load", () => {
-    window.ohtoai ||= {}
+    window.ohtoai = window.ohtoai || {};
 
     /**
      * @brief 等待editorUi初始化完成
@@ -529,6 +619,109 @@ window.addEventListener("load", () => {
         window.ohtoai.enableEditing = enableEditing;
         window.ohtoai.disableEditing = disableEditing;
         window.ohtoai.isEditingEnabled = isEditingEnabled;
+        
+        // 注册服务器保存功能到全局对象
+        window.ohtoai.saveToServer = saveToServer;
+        
+        const editorUi = window.sb.editorUi;
+        
+        // 修改文件菜单，移除客户端保存选项，添加服务器保存功能
+        if (editorUi && editorUi.menus) {
+            const fileMenu = editorUi.menus.get('file');
+            if (fileMenu) {
+                const originalFunct = fileMenu.funct;
+                
+                fileMenu.funct = function(menu, parent) {
+                    console.log('修改文件菜单：移除客户端保存选项');
+                    
+                    // 添加基本的文件操作，但移除saveAs和exportAs
+                    editorUi.menus.addMenuItems(menu, ['new', 'open'], parent);
+                    
+                    // 添加分隔符
+                    menu.addSeparator(parent);
+                    
+                    // 添加服务器保存功能
+                    menu.addItem('保存到服务器', null, function() {
+                        const currentFile = editorUi.getCurrentFile();
+                        if (!currentFile) {
+                            editorUi.alert('没有文件可保存');
+                            return;
+                        }
+                        
+                        let filename = currentFile.getTitle();
+                        if (!filename || filename === 'Untitled') {
+                            filename = prompt('请输入文件名:', 'diagram');
+                            if (!filename) {
+                                return; // 用户取消
+                            }
+                        }
+                        
+                        saveToServer(filename, 
+                            function(data) {
+                                editorUi.alert('文件保存成功: ' + data.filename);
+                            },
+                            function(err) {
+                                editorUi.alert('保存失败: ' + err.message);
+                            }
+                        );
+                    }, parent);
+                    
+                    // 添加分隔符
+                    menu.addSeparator(parent);
+                    
+                    // 只保留导入功能，移除导出功能以防止用户保存到客户端
+                    editorUi.menus.addMenuItems(menu, ['import'], parent);
+                    
+                    // 添加分隔符
+                    menu.addSeparator(parent);
+                    
+                    // 添加库功能
+                    editorUi.menus.addMenuItems(menu, ['newLibrary', 'openLibrary'], parent);
+                    
+                    // 添加其他必要的文件菜单项，但排除保存到客户端的功能
+                    const currentFile = editorUi.getCurrentFile();
+                    if (currentFile && editorUi.fileNode) {
+                        const filename = currentFile.getTitle() || editorUi.defaultFilename;
+                        if (!/(\\.html)$/i.test(filename) && !/(\\.svg)$/i.test(filename)) {
+                            editorUi.menus.addMenuItems(menu, ['-', 'properties'], parent);
+                        }
+                    }
+                    
+                    // 添加页面设置和打印，但移除保存相关的功能
+                    editorUi.menus.addMenuItems(menu, ['-', 'pageSetup', 'print'], parent);
+                    
+                    // 保留关闭和退出功能
+                    editorUi.menus.addMenuItems(menu, ['-', 'close', '-', 'exit'], parent);
+                };
+            }
+            
+            // 重写保存操作以使用服务器保存
+            if (editorUi.actions) {
+                const saveAction = editorUi.actions.get('save');
+                if (saveAction) {
+                    const originalSaveFunct = saveAction.funct;
+                    saveAction.funct = function() {
+                        console.log('拦截保存操作，使用服务器保存');
+                        const currentFile = editorUi.getCurrentFile();
+                        if (!currentFile) {
+                            editorUi.alert('没有文件可保存');
+                            return;
+                        }
+                        
+                        let filename = currentFile.getTitle() || 'untitled';
+                        saveToServer(filename, 
+                            function(data) {
+                                console.log('保存成功:', data.filename);
+                            },
+                            function(err) {
+                                console.error('保存失败:', err.message);
+                                editorUi.alert('保存失败: ' + err.message);
+                            }
+                        );
+                    };
+                }
+            }
+        }
 
         // 只读模式下的上下文菜单防御性修复
         const editorUi = window.sb.editorUi;
