@@ -494,11 +494,153 @@ class StripedOverlayManager {
 }
 
 /**
+ * @brief 服务器保存功能
+ * @description 将文件保存到服务器，而不是客户端下载
+ */
+function saveToServer(filename, success, error) {
+    console.log('saveToServer: Saving file to server', { filename });
+    
+    try {
+        const editorUi = window.sb && window.sb.editorUi;
+        if (!editorUi) {
+            throw new Error('editorUi not available');
+        }
+        
+        const currentFile = editorUi.getCurrentFile();
+        if (!currentFile) {
+            throw new Error('No current file to save');
+        }
+        
+        // Get the file data (XML content)
+        const fileData = currentFile.getData();
+        if (!fileData) {
+            throw new Error('No data to save');
+        }
+        
+        // Prepare the filename
+        let saveFilename = filename || currentFile.getTitle() || 'untitled';
+        if (!saveFilename.endsWith('.xml') && !saveFilename.endsWith('.drawio')) {
+            saveFilename += '.drawio';
+        }
+        
+        // Prepare request data
+        const requestData = {
+            filename: saveFilename,
+            content: fileData
+        };
+        
+        // Send to server
+        fetch('/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestData)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                console.log('saveToServer: File saved successfully', data);
+                
+                // Mark file as not modified since it's saved
+                currentFile.setModified(false);
+                
+                // Show success message
+                if (editorUi.editor && editorUi.editor.graph) {
+                    editorUi.editor.setStatus('文件已保存到服务器: ' + data.filename);
+                }
+                
+                if (success) {
+                    success(data);
+                }
+            } else {
+                throw new Error(data.error || 'Unknown error');
+            }
+        })
+        .catch(err => {
+            console.error('saveToServer: Error saving file', err);
+            
+            // Show error message
+            if (editorUi.editor && editorUi.editor.graph) {
+                editorUi.editor.setStatus('保存失败: ' + err.message);
+            }
+            
+            if (error) {
+                error(err);
+            }
+        });
+        
+    } catch (err) {
+        console.error('saveToServer: Error preparing save', err);
+        if (error) {
+            error(err);
+        }
+    }
+}
+
+/**
  * @brief 模块初始化入口
  * @description 等待页面加载完成后初始化高亮管理器和相关功能
  */
+// Override Menus.prototype.createMenubar to remove Help menu properly
+function removeHelpMenuFromMenubar() {
+    if (typeof Menus !== 'undefined' && Menus.prototype && Menus.prototype.createMenubar) {
+        // Store original createMenubar function
+        const originalCreateMenubar = Menus.prototype.createMenubar;
+        
+        // Override createMenubar to exclude help menu
+        Menus.prototype.createMenubar = function(container) {
+            // Create a modified version of defaultMenuItems without 'help'
+            const originalDefaultItems = this.defaultMenuItems;
+            let modifiedItems;
+            
+            if (typeof originalDefaultItems === 'string') {
+                modifiedItems = originalDefaultItems.split(' ').filter(item => item !== 'help');
+            } else if (Array.isArray(originalDefaultItems)) {
+                modifiedItems = originalDefaultItems.filter(item => item !== 'help');
+            } else {
+                // Fallback
+                modifiedItems = ["file", "edit", "view", "arrange", "extras"];
+            }
+            
+            // Temporarily override defaultMenuItems for this call
+            this.defaultMenuItems = modifiedItems;
+            
+            // Call original createMenubar
+            const result = originalCreateMenubar.call(this, container);
+            
+            // Restore original defaultMenuItems
+            this.defaultMenuItems = originalDefaultItems;
+            
+            console.log("Help menu removed from menubar during creation");
+            return result;
+        };
+        
+        return true;
+    }
+    return false;
+}
+
+// Try to remove Help menu immediately if Menus is available
+if (!removeHelpMenuFromMenubar()) {
+    // If not available yet, set up polling to catch it when it loads
+    let attempts = 0;
+    const maxAttempts = 50; // Poll for up to 5 seconds
+    const pollForMenus = setInterval(() => {
+        attempts++;
+        if (removeHelpMenuFromMenubar() || attempts >= maxAttempts) {
+            clearInterval(pollForMenus);
+        }
+    }, 100);
+}
+
 window.addEventListener("load", () => {
-    window.ohtoai ||= {}
+    window.ohtoai = window.ohtoai || {};
 
     /**
      * @brief 等待editorUi初始化完成
@@ -529,14 +671,137 @@ window.addEventListener("load", () => {
         window.ohtoai.enableEditing = enableEditing;
         window.ohtoai.disableEditing = disableEditing;
         window.ohtoai.isEditingEnabled = isEditingEnabled;
-
-        // 只读模式下的上下文菜单防御性修复
+        
+        // 注册服务器保存功能到全局对象
+        window.ohtoai.saveToServer = saveToServer;
+        
         const editorUi = window.sb.editorUi;
+        
+        // 修改文件菜单，移除客户端保存选项，添加服务器保存功能
         if (editorUi && editorUi.menus) {
+            const fileMenu = editorUi.menus.get('file');
+            if (fileMenu) {
+                const originalFunct = fileMenu.funct;
+                
+                fileMenu.funct = function(menu, parent) {
+                    console.log('修改文件菜单：移除客户端保存选项');
+                    
+                    // 添加基本的文件操作，但移除saveAs和exportAs
+                    editorUi.menus.addMenuItems(menu, ['new', 'open'], parent);
+                    
+                    // 添加分隔符
+                    menu.addSeparator(parent);
+                    
+                    // 添加服务器保存功能
+                    menu.addItem('保存到服务器', null, function() {
+                        const currentFile = editorUi.getCurrentFile();
+                        if (!currentFile) {
+                            editorUi.alert('没有文件可保存');
+                            return;
+                        }
+                        
+                        let filename = currentFile.getTitle();
+                        if (!filename || filename === 'Untitled') {
+                            filename = prompt('请输入文件名:', 'diagram');
+                            if (!filename) {
+                                return; // 用户取消
+                            }
+                        }
+                        
+                        saveToServer(filename, 
+                            function(data) {
+                                editorUi.alert('文件保存成功: ' + data.filename);
+                            },
+                            function(err) {
+                                editorUi.alert('保存失败: ' + err.message);
+                            }
+                        );
+                    }, parent);
+                    
+                    // 添加分隔符
+                    menu.addSeparator(parent);
+                    
+                    // 只保留导入功能，移除导出功能以防止用户保存到客户端
+                    editorUi.menus.addMenuItems(menu, ['import'], parent);
+                    
+                    // 添加分隔符
+                    menu.addSeparator(parent);
+                    
+                    // 添加库功能
+                    editorUi.menus.addMenuItems(menu, ['newLibrary', 'openLibrary'], parent);
+                    
+                    // 添加其他必要的文件菜单项，但排除保存到客户端的功能
+                    const currentFile = editorUi.getCurrentFile();
+                    if (currentFile && editorUi.fileNode) {
+                        const filename = currentFile.getTitle() || editorUi.defaultFilename;
+                        if (!/(\\.html)$/i.test(filename) && !/(\\.svg)$/i.test(filename)) {
+                            editorUi.menus.addMenuItems(menu, ['-', 'properties'], parent);
+                        }
+                    }
+                    
+                    // 添加页面设置和打印，但移除保存相关的功能
+                    editorUi.menus.addMenuItems(menu, ['-', 'pageSetup', 'print'], parent);
+                    
+                    // 保留关闭和退出功能
+                    editorUi.menus.addMenuItems(menu, ['-', 'close', '-', 'exit'], parent);
+                };
+            }
+            
+            // 重写保存操作以使用服务器保存
+            if (editorUi.actions) {
+                const saveAction = editorUi.actions.get('save');
+                if (saveAction) {
+                    const originalSaveFunct = saveAction.funct;
+                    saveAction.funct = function() {
+                        console.log('拦截保存操作，使用服务器保存');
+                        const currentFile = editorUi.getCurrentFile();
+                        if (!currentFile) {
+                            editorUi.alert('没有文件可保存');
+                            return;
+                        }
+                        
+                        let filename = currentFile.getTitle() || 'untitled';
+                        saveToServer(filename, 
+                            function(data) {
+                                console.log('保存成功:', data.filename);
+                            },
+                            function(err) {
+                                console.error('保存失败:', err.message);
+                                editorUi.alert('保存失败: ' + err.message);
+                            }
+                        );
+                    };
+                }
+            }
+        }
+
+        // Remove library-related menu items and fix context menu issues
+        if (editorUi && editorUi.menus) {
+            // Remove library-related options from file menu
+            const originalFileMenu = editorUi.menus.get('file');
+            if (originalFileMenu) {
+                const originalFileMenuFunc = originalFileMenu.funct;
+                originalFileMenu.funct = function(menu, parent) {
+                    // Call original file menu function
+                    originalFileMenuFunc.apply(this, arguments);
+                    
+                    // Remove library-related menu items
+                    const menuItems = menu.div ? menu.div.querySelectorAll('.geMenuItem') : [];
+                    menuItems.forEach(function(item) {
+                        const text = item.textContent || '';
+                        // Remove "New Library" and "Open Library From" related options
+                        if (text.includes('Library') || text.includes('library')) {
+                            item.style.display = 'none';
+                        }
+                    });
+                };
+            }
+            
+            // Context menu defensive fix for readonly mode
             const originalCreatePopupMenu = editorUi.menus.createPopupMenu;
             editorUi.menus.createPopupMenu = function(menu, cell, evt) {
                 try {
-                    // 在只读模式下显示上下文菜单前清除选择以防止firstChild错误
+                    // Clear selection before showing context menu in readonly mode to prevent firstChild error
                     if (editorUi.editor && editorUi.editor.graph && !editorUi.editor.graph.isEnabled()) {
                         const graph = editorUi.editor.graph;
                         if (graph.getSelectionCount() > 0) {
@@ -545,20 +810,76 @@ window.addEventListener("load", () => {
                     }
                     return originalCreatePopupMenu.apply(this, arguments);
                 } catch (error) {
-                    console.error('上下文菜单创建错误:', error);
-                    // 如果发生错误则清除选择并重试
+                    console.error('Context menu creation error:', error);
+                    // If error occurs, clear selection and retry
                     if (editorUi.editor && editorUi.editor.graph) {
                         editorUi.editor.graph.clearSelection();
                     }
                     try {
                         return originalCreatePopupMenu.apply(this, arguments);
                     } catch (secondError) {
-                        console.error('上下文菜单创建二次失败:', secondError);
-                        return; // 放弃处理
+                        console.error('Context menu creation second failure:', secondError);
+                        return; // Give up processing
                     }
                 }
             };
         }
+
+        // 添加服务器库加载API
+        window.ohtoai = window.ohtoai || {};
+        window.ohtoai.loadLibraryFromServer = function(libraryPath, successCallback, errorCallback) {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', '/library/' + encodeURIComponent(libraryPath), true);
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4) {
+                    if (xhr.status === 200) {
+                        try {
+                            const libraryXML = xhr.responseText;
+                            const doc = mxUtils.parseXml(libraryXML);
+                            const library = doc.documentElement;
+                            
+                            if (library.nodeName === 'mxlibrary') {
+                                // 解析库并添加到侧边栏
+                                const shapes = JSON.parse(library.textContent || '[]');
+                                const title = library.getAttribute('title') || libraryPath;
+                                
+                                // 获取侧边栏实例
+                                const sidebar = editorUi.sidebar;
+                                if (sidebar && sidebar.addLibraryEntries) {
+                                    sidebar.addLibraryEntries(shapes, title);
+                                    console.log('成功加载库:', title, '包含', shapes.length, '个形状');
+                                    
+                                    if (successCallback) {
+                                        successCallback({
+                                            title: title,
+                                            shapesCount: shapes.length,
+                                            library: library
+                                        });
+                                    }
+                                } else {
+                                    throw new Error('侧边栏不可用');
+                                }
+                            } else {
+                                throw new Error('无效的库文件格式');
+                            }
+                        } catch (e) {
+                            console.error('解析库文件失败:', e);
+                            if (errorCallback) {
+                                errorCallback({ message: '解析库文件失败: ' + e.message });
+                            }
+                        }
+                    } else {
+                        console.error('加载库文件失败:', xhr.status, xhr.statusText);
+                        if (errorCallback) {
+                            errorCallback({ 
+                                message: '加载库文件失败: ' + xhr.status + ' ' + xhr.statusText 
+                            });
+                        }
+                    }
+                }
+            };
+            xhr.send();
+        };
 
         // 延迟初始化默认图表和高亮管理器
         setTimeout(() => {
