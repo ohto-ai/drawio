@@ -625,6 +625,58 @@ window.addEventListener("load", () => {
         
         const editorUi = window.sb.editorUi;
         
+        // 移除帮助菜单栏
+        if (editorUi && editorUi.menus) {
+            // 从默认菜单项中移除 help
+            if (editorUi.menus.defaultMenuItems) {
+                editorUi.menus.defaultMenuItems = editorUi.menus.defaultMenuItems.filter(item => item !== 'help');
+                console.log('已从默认菜单项中移除帮助菜单');
+            }
+            
+            // 重写帮助菜单为空菜单
+            const helpMenu = editorUi.menus.get('help');
+            if (helpMenu) {
+                helpMenu.funct = function(menu, parent) {
+                    // 空实现 - 不添加任何菜单项
+                    console.log('帮助菜单已被禁用');
+                };
+            }
+            
+            // 隐藏帮助菜单的DOM元素
+            setTimeout(() => {
+                try {
+                    console.log('正在查找并隐藏帮助菜单...');
+                    
+                    // 查找所有元素中直接文本为"Help"的元素并隐藏
+                    const allElements = document.querySelectorAll('*');
+                    let hiddenCount = 0;
+                    
+                    allElements.forEach((element) => {
+                        // 检查元素的直接文本内容（不包括子元素的文本）
+                        let directText = '';
+                        for (let node of element.childNodes) {
+                            if (node.nodeType === Node.TEXT_NODE) {
+                                directText += node.textContent;
+                            }
+                        }
+                        if (directText.trim() === 'Help') {
+                            element.style.display = 'none';
+                            hiddenCount++;
+                            console.log('已隐藏帮助菜单元素:', element.tagName, element.className);
+                        }
+                    });
+                    
+                    if (hiddenCount > 0) {
+                        console.log(`成功隐藏了 ${hiddenCount} 个帮助菜单元素`);
+                    } else {
+                        console.log('未找到帮助菜单元素');
+                    }
+                } catch (e) {
+                    console.error('隐藏帮助菜单按钮时出错:', e);
+                }
+            }, 2000); // 延迟2秒确保DOM完全加载
+        }
+        
         // 修改文件菜单，移除客户端保存选项，添加服务器保存功能
         if (editorUi && editorUi.menus) {
             const fileMenu = editorUi.menus.get('file');
