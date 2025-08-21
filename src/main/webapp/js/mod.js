@@ -1,60 +1,15 @@
 /**
- * file: js/mod.js
- * Description: This script loads a diagram from a URL specified in the query parameters.
+ * @file mod.js
+ * @brief DrawIO图表加载和高亮管理模块
+ * @description 此脚本提供DrawIO图表文件的加载功能和条纹覆盖高亮管理器
  */
 
 /**
- * 遍历对象树，查找含有指定属性或方法的对象
- * @param {object} root       - 搜索的根节点对象
- * @param {string} keyName    - 要查找的属性或方法名
- * @param {number} maxDepth   - 最大递归深度 (默认 3)
- * @returns {Array<{path: string, obj: object}>}
- */
-function findObjectsWith(root, keyName, maxDepth = 3) {
-  const seen = new WeakSet();
-  const matches = [];
-
-  function search(obj, path, depth) {
-    if (obj == null || typeof obj !== "object") return;
-    if (seen.has(obj)) return;
-    seen.add(obj);
-
-    try {
-      if (keyName in obj) {
-        if (typeof obj[keyName] === "function") {
-          console.log("Found function:", path, obj);
-        } else {
-          console.log("Found property:", path, obj);
-        }
-        matches.push({ path, obj });
-      }
-    } catch (e) {
-      // 某些对象属性访问可能报错，忽略
-    }
-
-    if (depth >= maxDepth) return;
-
-    for (let key in obj) {
-      try {
-        const val = obj[key];
-        if (val && typeof val === "object") {
-          search(val, path + "." + key, depth + 1);
-        }
-      } catch (e) {
-        // 有些 getter 会抛异常，忽略
-      }
-    }
-  }
-
-  search(root, "root", 0);
-  return matches;
-}
-
-/**
- * 加载drawio文件的接口
- * @param {string} url - 文件的URL
- * @param {boolean} readonly - 是否只读模式，默认为false
- * @returns {Promise<LocalFile>} 加载的文件对象
+ * @brief 加载DrawIO图表文件
+ * @param {string} url - 文件的URL地址
+ * @param {boolean} readonly - 是否以只读模式加载，默认为false
+ * @returns {Promise<LocalFile>} 返回加载的LocalFile对象的Promise
+ * @throws {Error} 当editorUi不可用或文件加载失败时抛出异常
  */
 function loadGraphXML(url, readonly = false) {
     console.log(`loadGraphXML: Loading diagram from ${url}`, { readonly });
@@ -114,8 +69,9 @@ function loadGraphXML(url, readonly = false) {
 }
 
 /**
- * 启用编辑功能
- * @returns {boolean} 成功返回true，失败返回false
+ * @brief 启用图表编辑功能
+ * @returns {boolean} 启用成功返回true，失败返回false
+ * @description 启用图形编辑和文件编辑功能，使图表可以被修改
  */
 function enableEditing() {
     console.log('enableEditing: Enabling editor');
@@ -149,8 +105,9 @@ function enableEditing() {
 }
 
 /**
- * 禁用编辑功能（只读模式）
- * @returns {boolean} 成功返回true，失败返回false
+ * @brief 禁用图表编辑功能，设置为只读模式
+ * @returns {boolean} 禁用成功返回true，失败返回false
+ * @description 禁用图形编辑和文件编辑功能，使图表变为只读模式
  */
 function disableEditing() {
     console.log('disableEditing: Disabling editor');
@@ -184,8 +141,9 @@ function disableEditing() {
 }
 
 /**
- * 检查当前是否启用编辑
- * @returns {boolean} 如果启用编辑返回true，否则返回false
+ * @brief 检查当前图表编辑状态
+ * @returns {boolean} 编辑功能启用时返回true，否则返回false
+ * @description 检查图形和文件的编辑状态，两者都启用时才返回true
  */
 function isEditingEnabled() {
     try {
@@ -213,139 +171,341 @@ function isEditingEnabled() {
 
 
 /**
- * StripedOverlayManager（基于 mxCellHighlight，不修改 style）
+ * @class StripedOverlayManager
+ * @brief 条纹覆盖高亮管理器
+ * @description 基于mxCellHighlight实现的多重高亮管理器，支持条件高亮和指定高亮两种模式
+ * 
+ * 特性：
+ * - 条件高亮：基于回调函数的动态评估高亮
+ * - 指定高亮：直接指定单元格的高亮
+ * - 优先级系统：指定高亮优先于条件高亮，后添加的高亮优先于早添加的
+ * - 独立颜色循环：每个高亮组独立管理颜色动画
+ * - 不修改原始样式：使用覆盖层实现高亮效果
  */
 class StripedOverlayManager {
-    constructor(graph, highlightColor = '#ff0000', strokeWidth = 4) {
+    /**
+     * @brief 构造函数
+     * @param {mxGraph} graph - mxGraph实例
+     * @param {number} strokeWidth - 高亮边框宽度，默认为4
+     */
+    constructor(graph, strokeWidth = 4) {
         this.graph = graph;
-        this.highlightColor = highlightColor;
         this.strokeWidth = strokeWidth;
         this.cellsWithHighlight = new Set();
         this.highlights = new Map();
-        this._borderColors = ['#ff0000', '#ffff00'];
-        this._colorIndex = 0;
         this._borderTimer = null;
         this._interval = 300;
-        this._autoHighlightTimer = null;
+        
+        // 多个条件高亮支持
+        this._conditionalHighlights = [];  // [{id, callback, colors, colorIndex}]
+        
+        // 多个指定高亮支持  
+        this._specificHighlights = [];     // [{id, cells, colors, colorIndex}]
+        
+        // 追踪每个cell的高亮信息 {cell -> {type, id, highlight}}
+        this._cellHighlightInfo = new Map();
     }
 
-    setHighlightColors(colors) {
-        if (Array.isArray(colors) && colors.length > 0) {
-            this._borderColors = colors;
-            this._colorIndex = 0; // 重置颜色索引
-            // 如果有高亮存在，更新颜色
-            this.cellsWithHighlight.forEach(cell => {
-                const hl = this.highlights.get(cell);
-                if (hl) {
-                    hl.setHighlightColor(this._getHighlightColor());
-                    // 重新高亮以刷新颜色
-                    hl.hide();
-                    hl.highlight(this.graph.view.getState(cell));
+    /**
+     * @brief 添加条件高亮
+     * @param {string} id - 高亮标识符，用于后续移除或更新
+     * @param {function} callback - 判断函数，接受cell参数，返回boolean
+     * @param {string[]} colors - 颜色组数组，用于循环动画显示
+     * @returns {boolean} 添加成功返回true，参数无效返回false
+     * @description 添加基于条件判断的动态高亮，满足条件的单元格将被高亮显示
+     */
+    addConditionalHighlight(id, callback, colors) {
+        if (!id || typeof callback !== 'function' || !Array.isArray(colors) || colors.length === 0) {
+            return false;
+        }
+        
+        // 移除已存在的同id高亮
+        this.removeConditionalHighlight(id);
+        
+        this._conditionalHighlights.push({
+            id: id,
+            callback: callback,
+            colors: colors,
+            colorIndex: 0
+        });
+        
+        return true;
+    }
+
+    /**
+     * @brief 移除条件高亮
+     * @param {string} id - 要移除的高亮标识符
+     * @returns {boolean} 移除成功返回true，未找到对应高亮返回false
+     * @description 根据标识符移除对应的条件高亮，并刷新显示
+     */
+    removeConditionalHighlight(id) {
+        const index = this._conditionalHighlights.findIndex(h => h.id === id);
+        if (index >= 0) {
+            this._conditionalHighlights.splice(index, 1);
+            this._refreshHighlights();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * @brief 添加指定高亮
+     * @param {string} id - 高亮标识符，用于后续移除或更新
+     * @param {object[]} cells - 要高亮的单元格数组
+     * @param {string[]} colors - 颜色组数组，用于循环动画显示
+     * @returns {boolean} 添加成功返回true，参数无效返回false
+     * @description 为指定的单元格添加高亮，指定高亮优先级高于条件高亮
+     */
+    addSpecificHighlight(id, cells, colors) {
+        if (!id || !Array.isArray(cells) || !Array.isArray(colors) || colors.length === 0) {
+            return false;
+        }
+        
+        // 移除已存在的同id高亮
+        this.removeSpecificHighlight(id);
+        
+        this._specificHighlights.push({
+            id: id,
+            cells: new Set(cells),
+            colors: colors,
+            colorIndex: 0
+        });
+        
+        return true;
+    }
+
+    /**
+     * @brief 移除指定高亮
+     * @param {string} id - 要移除的高亮标识符
+     * @returns {boolean} 移除成功返回true，未找到对应高亮返回false
+     * @description 根据标识符移除对应的指定高亮，并刷新显示
+     */
+    removeSpecificHighlight(id) {
+        const index = this._specificHighlights.findIndex(h => h.id === id);
+        if (index >= 0) {
+            this._specificHighlights.splice(index, 1);
+            this._refreshHighlights();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * @brief 刷新所有高亮显示
+     * @description 重新计算所有高亮条件并应用高亮效果，用于手动刷新显示状态
+     * @private
+     */
+    _refreshHighlights() {
+        // 清除所有现有高亮
+        this._clearAllHighlights();
+        
+        // 获取所有需要高亮的cells
+        const model = this.graph.getModel();
+        const cellsToHighlight = new Map(); // cell -> {type, id, colors, colorIndex}
+        
+        // 遍历所有cells并应用高亮逻辑
+        model.filterDescendants(cell => {
+            let highlightInfo = null;
+            
+            // 1. 检查条件高亮 (从后往前，最后的优先)
+            for (let i = this._conditionalHighlights.length - 1; i >= 0; i--) {
+                const condHighlight = this._conditionalHighlights[i];
+                try {
+                    if (condHighlight.callback(cell)) {
+                        highlightInfo = {
+                            type: 'conditional',
+                            id: condHighlight.id,
+                            colors: condHighlight.colors,
+                            colorIndex: condHighlight.colorIndex
+                        };
+                        break; // 短路测试，第一个匹配的就使用
+                    }
+                } catch (e) {
+                    console.warn(`条件高亮回调函数出错 (id: ${condHighlight.id}):`, e);
                 }
-            });
+            }
+            
+            // 2. 检查指定高亮 (从后往前，最后的优先，且优先于条件高亮)
+            for (let i = this._specificHighlights.length - 1; i >= 0; i--) {
+                const specHighlight = this._specificHighlights[i];
+                if (specHighlight.cells.has(cell)) {
+                    highlightInfo = {
+                        type: 'specific',
+                        id: specHighlight.id,
+                        colors: specHighlight.colors,
+                        colorIndex: specHighlight.colorIndex
+                    };
+                    break; // 找到就退出
+                }
+            }
+            
+            // 3. 应用高亮
+            if (highlightInfo) {
+                cellsToHighlight.set(cell, highlightInfo);
+            }
+            
+            return false;
+        });
+        
+        // 应用高亮
+        cellsToHighlight.forEach((info, cell) => {
+            this._applyHighlightToCell(cell, info);
+        });
+        
+        // 启动动画定时器
+        if (cellsToHighlight.size > 0) {
+            this._startBorderTimer();
         }
     }
 
-    // 应用高亮
-    applyHighlight(cells) {
-        cells.forEach(cell => {
-            if (!this.cellsWithHighlight.has(cell)) {
-                const hl = new mxCellHighlight(
-                    this.graph,
-                    this._getHighlightColor(),
-                    this.strokeWidth
-                );
-                hl.highlight(this.graph.view.getState(cell));
-                this.highlights.set(cell, hl);
-                this.cellsWithHighlight.add(cell);
-            }
-        });
-        this._startBorderTimer();
+    /**
+     * @brief 对单个单元格应用高亮效果
+     * @param {object} cell - 要高亮的单元格
+     * @param {object} info - 高亮信息对象，包含type、id、colors、colorIndex等属性
+     * @description 为指定单元格创建mxCellHighlight实例并应用高亮
+     * @private
+     */
+    _applyHighlightToCell(cell, info) {
+        const currentColor = info.colors[info.colorIndex];
+        const hl = new mxCellHighlight(
+            this.graph,
+            currentColor,
+            this.strokeWidth
+        );
+        hl.highlight(this.graph.view.getState(cell));
+        
+        this.highlights.set(cell, hl);
+        this.cellsWithHighlight.add(cell);
+        this._cellHighlightInfo.set(cell, info);
     }
 
-    // 获取当前高亮色
-    _getHighlightColor() {
-        return this._borderColors[this._colorIndex];
+    /**
+     * @brief 清除所有高亮显示但不删除高亮定义
+     * @description 清除当前显示的所有高亮效果，但保留高亮配置以便后续刷新
+     * @private
+     */
+    _clearAllHighlights() {
+        this.highlights.forEach(hl => hl.hide());
+        this.highlights.clear();
+        this.cellsWithHighlight.clear();
+        this._cellHighlightInfo.clear();
     }
 
-    // 清除高亮
+    /**
+     * @brief 完全清除所有高亮
+     * @description 停止动画定时器，清除所有高亮显示，并删除所有高亮定义
+     */
     clearHighlight() {
         if (this._borderTimer) {
             clearInterval(this._borderTimer);
             this._borderTimer = null;
         }
-        if (this._autoHighlightTimer) {
-            clearInterval(this._autoHighlightTimer);
-            this._autoHighlightTimer = null;
-        }
         this.highlights.forEach(hl => hl.hide());
         this.highlights.clear();
         this.cellsWithHighlight.clear();
+        
+        // 清除所有高亮定义
+        this._conditionalHighlights = [];
+        this._specificHighlights = [];
+        this._cellHighlightInfo.clear();
     }
 
-    // 更新高亮
-    updateHighlight(callback) {
-        const model = this.graph.getModel();
-        model.filterDescendants(cell => {
-            const shouldHighlight = callback(cell);
-            const hasHighlight = this.cellsWithHighlight.has(cell);
-
-            if (shouldHighlight && !hasHighlight) {
-                this.applyHighlight([cell]);
-            } else if (!shouldHighlight && hasHighlight) {
-                const hl = this.highlights.get(cell);
-                if (hl) hl.hide();
-                this.highlights.delete(cell);
-                this.cellsWithHighlight.delete(cell);
-            }
-            return false;
-        });
-        if (this.cellsWithHighlight.size === 0 && this._borderTimer) {
-            clearInterval(this._borderTimer);
-            this._borderTimer = null;
-        }
-    }
-
+    /**
+     * @brief 启动边框动画定时器
+     * @description 启动定时器以实现高亮边框的颜色循环动画效果
+     * @private
+     */
     // 启动蚂蚁线定时器
     _startBorderTimer() {
         if (this._borderTimer) return;
         this._borderTimer = setInterval(() => {
-            this._colorIndex = (this._colorIndex + 1) % this._borderColors.length;
+            // 更新所有高亮组的颜色索引
+            this._conditionalHighlights.forEach(highlight => {
+                highlight.colorIndex = (highlight.colorIndex + 1) % highlight.colors.length;
+            });
+            this._specificHighlights.forEach(highlight => {
+                highlight.colorIndex = (highlight.colorIndex + 1) % highlight.colors.length;
+            });
+            
+            // 更新高亮显示
             this.cellsWithHighlight.forEach(cell => {
                 const hl = this.highlights.get(cell);
-                if (hl) {
-                    hl.setHighlightColor(this._getHighlightColor());
+                const info = this._cellHighlightInfo.get(cell);
+                
+                if (hl && info) {
+                    // 使用新系统的颜色
+                    const currentColor = info.colors[info.colorIndex];
+                    hl.setHighlightColor(currentColor);
                     // 重新高亮以刷新颜色
                     hl.hide();
                     hl.highlight(this.graph.view.getState(cell));
+                    
+                    // 更新info中的colorIndex以保持同步
+                    if (info.type === 'conditional') {
+                        const condHighlight = this._conditionalHighlights.find(h => h.id === info.id);
+                        if (condHighlight) {
+                            info.colorIndex = condHighlight.colorIndex;
+                        }
+                    } else if (info.type === 'specific') {
+                        const specHighlight = this._specificHighlights.find(h => h.id === info.id);
+                        if (specHighlight) {
+                            info.colorIndex = specHighlight.colorIndex;
+                        }
+                    }
                 }
             });
         }, this._interval);
     }
 
     /**
-     * 自动高亮 alarm=1 的cell
-     * @param {number} intervalMs
+     * @brief 获取所有条件高亮信息
+     * @returns {Array} 包含条件高亮配置的数组，每个元素包含id、colors、colorIndex等属性
+     * @description 返回当前所有条件高亮的配置信息副本，不包含回调函数
      */
-    startAutoHighlight(callback, intervalMs = 1000) {
-        if (this._autoHighlightTimer) return;
-        this._autoHighlightTimer = setInterval(() => {
-            this.updateHighlight(callback);
-        }, intervalMs);
+    getConditionalHighlights() {
+        return this._conditionalHighlights.map(h => ({
+            id: h.id,
+            colors: h.colors.slice(),
+            colorIndex: h.colorIndex
+        }));
     }
-    stopAutoHighlight() {
-        if (this._autoHighlightTimer) {
-            clearInterval(this._autoHighlightTimer);
-            this._autoHighlightTimer = null;
-        }
+
+    /**
+     * @brief 获取所有指定高亮信息
+     * @returns {Array} 包含指定高亮配置的数组，每个元素包含id、cells、colors、colorIndex等属性
+     * @description 返回当前所有指定高亮的配置信息副本
+     */
+    getSpecificHighlights() {
+        return this._specificHighlights.map(h => ({
+            id: h.id,
+            cells: Array.from(h.cells),
+            colors: h.colors.slice(),
+            colorIndex: h.colorIndex
+        }));
+    }
+
+    /**
+     * @brief 立即刷新高亮显示
+     * @description 手动触发高亮刷新，重新计算所有条件并更新显示
+     */
+    refresh() {
+        this._refreshHighlights();
     }
 }
 
-// 入口
+/**
+ * @brief 模块初始化入口
+ * @description 等待页面加载完成后初始化高亮管理器和相关功能
+ */
 window.addEventListener("load", () => {
     window.ohtoai ||= {}
 
-    // 等待 window.sb.editorUi 创建完毕
+    /**
+     * @brief 等待editorUi初始化完成
+     * @param {function} callback - 初始化完成后的回调函数
+     * @param {number} timeout - 超时时间，默认10秒
+     * @description 轮询检查editorUi是否已创建，创建完成后执行回调
+     */
     function waitForEditorUi(callback, timeout = 10000) {
         const start = Date.now();
         (function check() {
@@ -360,62 +520,63 @@ window.addEventListener("load", () => {
     }
 
     waitForEditorUi(() => {
-        console.log("Plugin loaded: StripedOverlayManager");
+        console.log("高亮管理器插件已加载");
         
-        // 将loadGraphXML函数添加到window.ohtoai下
+        // 注册图表加载功能到全局对象
         window.ohtoai.loadGraphXML = loadGraphXML;
         
-        // 将编辑控制函数添加到window.ohtoai下
+        // 注册编辑控制功能到全局对象
         window.ohtoai.enableEditing = enableEditing;
         window.ohtoai.disableEditing = disableEditing;
         window.ohtoai.isEditingEnabled = isEditingEnabled;
 
-        // Add defensive fix for context menu in readonly mode
+        // 只读模式下的上下文菜单防御性修复
         const editorUi = window.sb.editorUi;
         if (editorUi && editorUi.menus) {
             const originalCreatePopupMenu = editorUi.menus.createPopupMenu;
             editorUi.menus.createPopupMenu = function(menu, cell, evt) {
                 try {
-                    // In readonly mode, clear selection before showing context menu to prevent firstChild errors
+                    // 在只读模式下显示上下文菜单前清除选择以防止firstChild错误
                     if (editorUi.editor && editorUi.editor.graph && !editorUi.editor.graph.isEnabled()) {
                         const graph = editorUi.editor.graph;
                         if (graph.getSelectionCount() > 0) {
-                            console.log('Clearing selection before context menu in readonly mode');
                             graph.clearSelection();
                         }
                     }
                     return originalCreatePopupMenu.apply(this, arguments);
                 } catch (error) {
-                    console.error('Context menu creation error:', error);
-                    // Clear selection if error occurs and try again
+                    console.error('上下文菜单创建错误:', error);
+                    // 如果发生错误则清除选择并重试
                     if (editorUi.editor && editorUi.editor.graph) {
                         editorUi.editor.graph.clearSelection();
                     }
                     try {
                         return originalCreatePopupMenu.apply(this, arguments);
                     } catch (secondError) {
-                        console.error('Context menu creation failed twice:', secondError);
-                        return; // Give up
+                        console.error('上下文菜单创建二次失败:', secondError);
+                        return; // 放弃处理
                     }
                 }
             };
         }
 
+        // 延迟初始化默认图表和高亮管理器
         setTimeout(() => {
-            var url = "demo/manual.drawio.xml"; // 默认 URL
+            var url = "demo/manual.drawio.xml"; // 默认图表文件
             if (url) {
                 window.ohtoai.loadGraphXML(url, true).then(() => {
-                    console.log("Diagram loaded, initializing StripedOverlayManager");
+                    console.log("图表已加载，正在初始化高亮管理器");
                     const graph = window.sb.editorUi.editor.graph;
                     window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
-                    window.ohtoai.stripedOverlayManager.startAutoHighlight(cell => {
+                    // 初始化告警单元格的条件高亮
+                    window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
                         if (!cell || !cell.value) return false;
                         if (typeof cell.value === "string") return false;
                         return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
-                    });
-                    // 如需手动停止高亮，可调用 manager.clearHighlight() 或 manager.stopAutoHighlight()
+                    }, ['#ff0000', '#ffff00']);
+                    window.ohtoai.stripedOverlayManager.refresh();
                 }).catch(error => {
-                    console.error("Failed to load diagram:", error);
+                    console.error("图表加载失败:", error);
                 });
             }
         }, 1000);
