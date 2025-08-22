@@ -13,6 +13,9 @@ window.DRAW_MATH_URL = 'math/es5';
 window.DRAWIO_CONFIG = {
 	// Disable grid and page view by default during initialization
 	defaultGridEnabled: false,
-	defaultPageVisible: false
+	defaultPageVisible: false,
+	language: "zh",
+	darkMode: true,
+	autosave: false,
 }; // Replace with your custom draw.io configurations. For more details, https://www.drawio.com/doc/faq/configure-diagram-editor
 urlParams['sync'] = 'manual';
