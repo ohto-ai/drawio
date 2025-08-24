@@ -9,3 +9,4 @@ window.ICONSEARCH_PATH = null;
 
 // add custom scripts
 mxscript('js/mod.js');
+mxscript('js/custom-logo.js');
