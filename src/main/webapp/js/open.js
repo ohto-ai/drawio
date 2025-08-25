@@ -123,32 +123,49 @@ function main()
 						});
 						
 						var table = document.createElement('table');
+						table.style.fontSize = '11pt';
+						table.style.width = '100%';
+						table.style.borderCollapse = 'collapse';
+						table.style.tableLayout = 'fixed';
+						
 						var hrow = document.createElement('tr');
 						hrow.style.backgroundColor = (darkMode) ? '#000' : '#D6D6D6';
 						hrow.style.color = (darkMode) ? '#cccccc' : '';
 						hrow.style.height = '25px';
 						hrow.style.textAlign = 'left';
 						table.appendChild(hrow);
+						
 						var hName = document.createElement('th');
+						hName.style.width = '40%';
+						hName.style.padding = '4px 8px';
+						hName.style.overflow = 'hidden';
+						hName.style.textOverflow = 'ellipsis';
 						window.parent.mxUtils.write(hName, window.parent.mxResources.get('name'));
 						hrow.appendChild(hName);
+						
 						var hModified = document.createElement('th');
-						hModified.style.width = '180px';
+						hModified.style.width = '25%';
+						hModified.style.padding = '4px 8px';
 						window.parent.mxUtils.write(hModified, window.parent.mxResources.get('lastModified'));
 						hrow.appendChild(hModified);
+						
 						var hSize = document.createElement('th');
+						hSize.style.width = '15%';
+						hSize.style.padding = '4px 8px';
 						window.parent.mxUtils.write(hSize, window.parent.mxResources.get('size'));
-						hSize.style.width = '70px';
 						hrow.appendChild(hSize);
+						
 						var hLocation = document.createElement('th');
+						hLocation.style.width = '15%';
+						hLocation.style.padding = '4px 8px';
 						window.parent.mxUtils.write(hLocation, 'Location');
-						hLocation.style.width = '80px';
 						hrow.appendChild(hLocation);
+						
 						var hCtrl = document.createElement('th');
-						hCtrl.style.width = '23px';
+						hCtrl.style.width = '5%';
+						hCtrl.style.padding = '4px';
+						hCtrl.style.textAlign = 'center';
 						hrow.appendChild(hCtrl);
-						table.style.fontSize = '12pt';
-						table.style.width = '100%';
 
 						for (var i = 0; i < allFiles.length; i++)
 						{
@@ -158,6 +175,7 @@ function main()
 							{
 								var row = document.createElement('tr');
 								row.style.color = (darkMode) ? '#cccccc' : '';
+								row.style.height = '28px';
 								table.appendChild(row);
 								
 								if (i & 1 == 1)
@@ -166,14 +184,22 @@ function main()
 								}
 									
 								var nameTd = document.createElement('td');
+								nameTd.style.padding = '4px 8px';
+								nameTd.style.overflow = 'hidden';
+								nameTd.style.textOverflow = 'ellipsis';
+								nameTd.style.whiteSpace = 'nowrap';
+								nameTd.setAttribute('title', fileInfo.title); // Add tooltip for full filename
 								row.appendChild(nameTd);
 								var link = document.createElement('a');
-								link.style.fontDecoration = 'none';
+								link.style.textDecoration = 'none';
+								link.style.color = 'inherit';
 								window.parent.mxUtils.write(link, fileInfo.title);
 								link.style.cursor = 'pointer';
 								nameTd.appendChild(link);
 								
 								var modifiedTd = document.createElement('td');
+								modifiedTd.style.padding = '4px 8px';
+								modifiedTd.style.fontSize = '10pt';
 								row.appendChild(modifiedTd);
 								var str = window.parent.EditorUi.prototype.timeSince(new Date(fileInfo.lastModified));
 								
@@ -185,23 +211,29 @@ function main()
 								window.parent.mxUtils.write(modifiedTd, window.parent.mxResources.get('timeAgo', [str]));
 								
 								var sizeTd = document.createElement('td');
+								sizeTd.style.padding = '4px 8px';
+								sizeTd.style.fontSize = '10pt';
 								row.appendChild(sizeTd);
 								window.parent.mxUtils.write(sizeTd, window.parent.EditorUi.prototype.formatFileSize(fileInfo.size));
 								
 								var locationTd = document.createElement('td');
-								row.appendChild(locationTd);
-								window.parent.mxUtils.write(locationTd, fileInfo.isServerFile ? 'Server' : 'Browser');
+								locationTd.style.padding = '4px 8px';
+								locationTd.style.fontSize = '10pt';
 								locationTd.style.fontStyle = 'italic';
 								locationTd.style.color = fileInfo.isServerFile ? '#0066cc' : '#666666';
+								row.appendChild(locationTd);
+								window.parent.mxUtils.write(locationTd, fileInfo.isServerFile ? 'Server' : 'Browser');
 								
 								var ctrlTd = document.createElement('td');
-								row.appendChild(ctrlTd);
+								ctrlTd.style.padding = '4px';
 								ctrlTd.style.textAlign = 'center';
+								row.appendChild(ctrlTd);
 								var img = document.createElement('img');
 								img.src = window.parent.Editor.trashImage;
 								img.style.cursor = 'pointer';
 								img.style.display = 'inline-block';
-								img.style.width = '18px';
+								img.style.width = '16px';
+								img.style.height = '16px';
 								img.setAttribute('title', window.parent.mxResources.get('delete'));
 								ctrlTd.appendChild(img);
 								
@@ -246,7 +278,8 @@ function main()
 													if (window.parent.openNew && window.parent.baseUrl != null)
 													{
 														var of = window.parent.openFile;
-														window.parent.geOpenWindow(window.parent.baseUrl + '#L' + encodeURIComponent(k), function()
+														// Use a different URL pattern that includes server file data
+														window.parent.geOpenWindow(window.parent.baseUrl + '#Lserver:' + encodeURIComponent(k), function()
 														{
 															of.cancel(false);
 														}, function()

@@ -69,6 +69,66 @@ function loadGraphXML(url, readonly = false) {
 }
 
 /**
+ * @brief 从服务器加载指定的图表文件
+ * @param {string} filename - 服务器上的文件名
+ * @returns {Promise<LocalFile>} 返回加载的LocalFile对象的Promise
+ * @description 通过/open/接口从服务器加载指定的图表文件
+ */
+function loadServerFile(filename) {
+    console.log(`loadServerFile: Loading server file ${filename}`);
+    
+    return new Promise((resolve, reject) => {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/open/' + encodeURIComponent(filename), true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    try {
+                        const editorUi = window.sb && window.sb.editorUi;
+                        if (!editorUi) {
+                            throw new Error('editorUi not available');
+                        }
+                        
+                        // 创建LocalFile实例
+                        const localFile = new LocalFile(editorUi, xhr.responseText, filename, true);
+                        
+                        // 使用editorUi的fileLoaded方法来加载文件
+                        editorUi.fileLoaded(localFile);
+                        
+                        console.log(`loadServerFile: Server file ${filename} loaded successfully`);
+                        resolve(localFile);
+                        
+                    } catch (error) {
+                        console.error(`loadServerFile: Error processing server file ${filename}:`, error);
+                        reject(error);
+                    }
+                } else {
+                    const error = new Error(`Failed to load server file: ${xhr.status} ${xhr.statusText}`);
+                    console.error(`loadServerFile: ${error.message}`);
+                    reject(error);
+                }
+            }
+        };
+        xhr.send();
+    });
+}
+
+/**
+ * @brief 从URL hash中提取服务器文件名
+ * @returns {string|null} 返回服务器文件名，如果没有则返回null
+ */
+function getServerFileFromHash() {
+    var hash = window.location.hash;
+    if (hash && hash.includes('#Lserver:')) {
+        var match = hash.match(/#Lserver:([^&]+)/);
+        if (match && match[1]) {
+            return decodeURIComponent(match[1]);
+        }
+    }
+    return null;
+}
+
+/**
  * @brief 启用图表编辑功能
  * @returns {boolean} 启用成功返回true，失败返回false
  * @description 启用图形编辑和文件编辑功能，使图表可以被修改
@@ -667,6 +727,10 @@ window.addEventListener("load", () => {
         // 注册图表加载功能到全局对象
         window.ohtoai.loadGraphXML = loadGraphXML;
         
+        // 注册服务器文件加载功能到全局对象
+        window.ohtoai.loadServerFile = loadServerFile;
+        window.ohtoai.getServerFileFromHash = getServerFileFromHash;
+        
         // 注册编辑控制功能到全局对象
         window.ohtoai.enableEditing = enableEditing;
         window.ohtoai.disableEditing = disableEditing;
@@ -883,22 +947,103 @@ window.addEventListener("load", () => {
 
         // 延迟初始化默认图表和高亮管理器
         setTimeout(() => {
-            var url = "demo/manual.drawio.xml"; // 默认图表文件
-            if (url) {
-                window.ohtoai.loadGraphXML(url, true).then(() => {
-                    console.log("图表已加载，正在初始化高亮管理器");
-                    const graph = window.sb.editorUi.editor.graph;
-                    window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
-                    // 初始化告警单元格的条件高亮
-                    window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
-                        if (!cell || !cell.value) return false;
-                        if (typeof cell.value === "string") return false;
-                        return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
-                    }, ['#ff0000', '#ffff00']);
-                    window.ohtoai.stripedOverlayManager.refresh();
-                }).catch(error => {
-                    console.error("图表加载失败:", error);
-                });
+            // 检查URL中是否有服务器文件标识符
+            var hash = window.location.hash;
+            var isServerFile = hash && hash.includes('#Lserver:');
+            var hasFileParam = hash && (hash.includes('#L') || isServerFile);
+            
+            // 只有在没有文件加载参数时才加载默认demo文件
+            if (!hasFileParam) {
+                var url = "demo/manual.drawio.xml"; // 默认图表文件
+                if (url) {
+                    window.ohtoai.loadGraphXML(url, true).then(() => {
+                        console.log("图表已加载，正在初始化高亮管理器");
+                        const graph = window.sb.editorUi.editor.graph;
+                        window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
+                        // 初始化告警单元格的条件高亮
+                        window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
+                            if (!cell || !cell.value) return false;
+                            if (typeof cell.value === "string") return false;
+                            return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
+                        }, ['#ff0000', '#ffff00']);
+                        window.ohtoai.stripedOverlayManager.refresh();
+                    }).catch(error => {
+                        console.error("图表加载失败:", error);
+                    });
+                }
+            } else {
+                // 如果有服务器文件参数，先尝试加载服务器文件
+                var serverFilename = window.ohtoai.getServerFileFromHash();
+                if (serverFilename) {
+                    console.log("检测到服务器文件参数:", serverFilename, "正在加载...");
+                    
+                    // 等待editorUi准备就绪，然后加载服务器文件
+                    var loadServerFileWhenReady = function() {
+                        if (window.sb && window.sb.editorUi && window.sb.editorUi.editor) {
+                            window.ohtoai.loadServerFile(serverFilename).then(() => {
+                                console.log("服务器文件已加载，正在初始化高亮管理器");
+                                const graph = window.sb.editorUi.editor.graph;
+                                window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
+                                // 初始化告警单元格的条件高亮
+                                window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
+                                    if (!cell || !cell.value) return false;
+                                    if (typeof cell.value === "string") return false;
+                                    return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
+                                }, ['#ff0000', '#ffff00']);
+                                window.ohtoai.stripedOverlayManager.refresh();
+                            }).catch(error => {
+                                console.error("服务器文件加载失败:", error);
+                                // 加载失败时初始化基础高亮管理器
+                                if (window.sb && window.sb.editorUi && window.sb.editorUi.editor && window.sb.editorUi.editor.graph) {
+                                    const graph = window.sb.editorUi.editor.graph;
+                                    window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
+                                    window.ohtoai.stripedOverlayManager.refresh();
+                                }
+                            });
+                        } else {
+                            setTimeout(loadServerFileWhenReady, 500);
+                        }
+                    };
+                    loadServerFileWhenReady();
+                } else {
+                    console.log("检测到文件加载参数，跳过默认demo文件，等待文件加载后初始化高亮管理器");
+                    
+                    // 等待文件加载完成后初始化高亮管理器
+                    var checkInterval = setInterval(() => {
+                        if (window.sb && window.sb.editorUi && window.sb.editorUi.editor && window.sb.editorUi.editor.graph) {
+                            const graph = window.sb.editorUi.editor.graph;
+                            const currentFile = window.sb.editorUi.getCurrentFile();
+                            if (currentFile) {
+                                console.log("文件已加载，正在初始化高亮管理器");
+                                window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
+                                // 初始化告警单元格的条件高亮
+                                window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
+                                    if (!cell || !cell.value) return false;
+                                    if (typeof cell.value === "string") return false;
+                                    return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
+                                }, ['#ff0000', '#ffff00']);
+                                window.ohtoai.stripedOverlayManager.refresh();
+                                clearInterval(checkInterval);
+                            }
+                        }
+                    }, 500); // 检查间隔500ms
+                    
+                    // 10秒后停止检查，防止无限循环
+                    setTimeout(() => {
+                        clearInterval(checkInterval);
+                        console.log("等待文件加载超时，初始化基础高亮管理器");
+                        if (window.sb && window.sb.editorUi && window.sb.editorUi.editor && window.sb.editorUi.editor.graph) {
+                            const graph = window.sb.editorUi.editor.graph;
+                            window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
+                            window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
+                                if (!cell || !cell.value) return false;
+                                if (typeof cell.value === "string") return false;
+                                return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
+                            }, ['#ff0000', '#ffff00']);
+                            window.ohtoai.stripedOverlayManager.refresh();
+                        }
+                    }, 10000);
+                }
             }
         }, 1000);
     }, 120000);
