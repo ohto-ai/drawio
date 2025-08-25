@@ -571,6 +571,25 @@ function saveToServer(filename, success, error) {
             throw new Error('No current file to save');
         }
         
+        // Ensure the graph changes are synced to file data before saving
+        if (editorUi.editor && editorUi.editor.graph) {
+            const graph = editorUi.editor.graph;
+            
+            // Force update file data with current graph state
+            try {
+                // Get the current XML representation of the graph
+                const enc = new mxCodec(mxUtils.createXmlDocument());
+                const node = enc.encode(graph.getModel());
+                const xml = mxUtils.getPrettyXml(node);
+                
+                // Update the file data with current graph state
+                currentFile.setData(xml);
+                console.log('saveToServer: Graph state synced to file data');
+            } catch (syncError) {
+                console.warn('saveToServer: Failed to sync graph state, using existing file data:', syncError);
+            }
+        }
+        
         // Get the file data (XML content)
         const fileData = currentFile.getData();
         if (!fileData) {
