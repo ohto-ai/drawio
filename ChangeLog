@@ -1,3 +1,17 @@
+21-AUG-2025: 28.1.1
+
+- [conf cloud] Workaround for CONFCLOUD-80136 bug [CES-99755]
+- [conf cloud] Removed color name from the anchor including a status macro [DID-16085]
+- Fixes scrollbars in nested menus [jgraph/drawio#5231]
+- Fixes handling of gapi-stealth for file menu, save and link dialog [DID-15625]
+- Adds lockdown via app configuration
+- Fixes editing of draft files in desktop
+
+12-AUG-2025: 28.1.0
+
+- [conf cloud] Fixes anchors with special characters [DID-15965]
+- [conf cloud] Adds caching to page IDs import [DID-15536]
+
 08-AUG-2025: 28.0.9
 
 - [conf cloud] Recovers from bug in page IDs import where server drawio macros are changed to embed (re-indexing reconverts them) [DID-15899]
