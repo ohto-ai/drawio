@@ -182,6 +182,11 @@ class FileHandler(BaseHTTPRequestHandler):
             elif path == '/list':
                 self._handle_list_files()
                 return
+            elif path.startswith('/open/'):
+                # Handle opening saved files - extract filename from path
+                filename = path[6:]  # Remove '/open/' prefix
+                self._handle_open_saved_file(filename)
+                return
             
             # Handle static file serving
             # Remove leading slash and handle empty path (root)
@@ -265,6 +270,52 @@ class FileHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.error(f"Error listing files: {e}")
             self._send_json_response(500, {'error': f'Failed to list files: {str(e)}'})
+    
+    def _handle_open_saved_file(self, filename):
+        """Serve a saved file for opening"""
+        try:
+            # Security check: ensure filename doesn't contain path traversal
+            if '..' in filename or '/' in filename or '\\' in filename:
+                self.send_response(400)
+                self._set_cors_headers()
+                self.end_headers()
+                self.wfile.write(b'Invalid filename')
+                return
+            
+            # Only allow specific file extensions
+            if not filename.endswith(('.xml', '.drawio')):
+                self.send_response(400)
+                self._set_cors_headers()
+                self.end_headers()
+                self.wfile.write(b'Invalid file type')
+                return
+            
+            file_path = os.path.join(SAVE_DIR, filename)
+            
+            if not os.path.exists(file_path):
+                self.send_response(404)
+                self._set_cors_headers()
+                self.end_headers()
+                self.wfile.write(b'File not found')
+                return
+            
+            # Read and return file content
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/xml')
+            self.send_header('Content-Length', str(len(content.encode('utf-8'))))
+            self._set_cors_headers()
+            self.end_headers()
+            self.wfile.write(content.encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Error opening saved file {filename}: {e}")
+            self.send_response(500)
+            self._set_cors_headers()
+            self.end_headers()
+            self.wfile.write(b'Internal server error')
 
 def parse_args():
     """Parse command line arguments"""
@@ -325,6 +376,7 @@ def run_server():
     logger.info("  POST /save - Save a file")
     logger.info("  GET /health - Health check")
     logger.info("  GET /list - List saved files")
+    logger.info("  GET /open/{filename} - Open a saved file")
     
     try:
         server.serve_forever()
