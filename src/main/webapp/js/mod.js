@@ -1065,5 +1065,5 @@ window.addEventListener("load", () => {
                 }
             }
         }, 1000);
-    }, 120000);
+    }); // Use default timeout (10 seconds) instead of 120000ms (2 minutes)
 });
