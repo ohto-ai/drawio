@@ -156,21 +156,39 @@ function jumpToElement(graph, elementId)
 				// Apply the translation to center the element
 				view.setTranslate(newTranslateX, newTranslateY);
 				
-				// Select and highlight the cell
-				graph.setSelectionCell(targetCell);
+				// Select the cell if selection is supported
+				if (typeof graph.setSelectionCell === 'function')
+				{
+					graph.setSelectionCell(targetCell);
+				}
 				
 				// Optional: Add temporary highlighting with a different color
-				var highlight = new mxCellHighlight(graph, '#ff0000', 2);
-				highlight.highlight(graph.view.getState(targetCell));
-				
-				// Remove highlight after 3 seconds
-				setTimeout(function()
+				if (typeof mxCellHighlight !== 'undefined')
 				{
-					if (highlight != null)
+					try
 					{
-						highlight.destroy();
+						var highlight = new mxCellHighlight(graph, '#ff0000', 2);
+						var state = graph.view.getState(targetCell);
+						if (state != null)
+						{
+							highlight.highlight(state);
+							
+							// Remove highlight after 3 seconds
+							setTimeout(function()
+							{
+								if (highlight != null)
+								{
+									highlight.destroy();
+								}
+							}, 3000);
+						}
 					}
-				}, 3000);
+					catch (e)
+					{
+						// Highlighting failed, but that's optional - continue anyway
+						console.log('Could not highlight element:', e.message);
+					}
+				}
 				
 				return true;
 			}
