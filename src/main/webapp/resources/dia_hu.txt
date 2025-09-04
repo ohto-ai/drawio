@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Importálja a Gliffy rögzített verzióját a legújabb ve
 confEmbedUpload=A jobb szerkesztési élmény érdekében használja a draw.io szokásos makrót egy üres diagram beszúrásához, majd a (Fájl menü → Importálás → Eszköz...) menüpontból válassza ki a feltölteni és beágyazni kívánt fájlt.
 confPublishErr=Egy másik frissítés ütközött a közzétételével, kérjük, próbálja meg újra
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

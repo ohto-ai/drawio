@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Impor versi Gliffy yang di-pin daripada versi terbaru
 confEmbedUpload=Untuk pengalaman pengeditan yang lebih baik, silakan gunakan makro draw.io biasa untuk menyisipkan diagram kosong, lalu dari (Menu File → Impor Dari → Perangkat...) pilih file yang ingin Anda unggah dan sematkan.
 confPublishErr=Terjadi konflik dengan pembaruan lain saat Anda mempublikasikan, silakan coba lagi
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

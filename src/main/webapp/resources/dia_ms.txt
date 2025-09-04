@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Impor versi Gliffy yang dipin daripada versi terbaru
 confEmbedUpload=Untuk pengalaman penyuntingan yang lebih baik, sila gunakan makro
 confPublishErr=Terjadi konflik dengan pembaruan lain saat Anda mempublikasikan, silakan coba lagi
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

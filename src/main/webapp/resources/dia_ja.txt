@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Gliffyの固定バージョンを最新バージョンの�
 confEmbedUpload=編集体験を向上させるために、通常の draw.io マクロを使用して空の図を挿入し、次に (ファイルメニュー → デバイスからインポート...) からアップロードして埋め込みたいファイルを選択してください。
 confPublishErr=別の更新が公開と競合しました。もう一度操作を試してください
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

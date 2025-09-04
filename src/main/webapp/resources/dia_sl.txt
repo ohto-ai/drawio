@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Uvozite pripeto različico Gliffy namesto najnovejše razli
 confEmbedUpload=Za boljšo izkušnjo urejanja uporabite običajni makro draw.io za vstavljanje praznega diagrama, nato iz (Meni Datoteka → Uvozi Iz → Naprava...) izberite datoteko, ki jo želite naložiti in vdelati.
 confPublishErr=Druga posodobitev je bila v sporu z vašo objavo, poskusite znova
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

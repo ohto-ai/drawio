@@ -1,3 +1,11 @@
+28-AUG-2025: 28.1.2
+
+- Fixes broken image in Office app [jgraph/drawio#5219]
+- X keyboard shortcut hides freehand window [jgraph/drawio#5217]
+- Makes CSV import dialog resizeable
+- Fixes label position for Network 2025 shapes [jgraph/drawio#5244]
+- Updates mermaid to v11.10.1
+
 21-AUG-2025: 28.1.1
 
 - [conf cloud] Workaround for CONFCLOUD-80136 bug [CES-99755]

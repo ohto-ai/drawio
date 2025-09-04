@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Importer la version épinglée de Gliffy au lieu de la dern
 confEmbedUpload=Pour une meilleure expérience d'édition, veuillez utiliser la macro régulière de draw.io pour insérer un diagramme vierge, puis depuis (Menu Fichier → Importer depuis → Appareil...) sélectionnez le fichier que vous souhaitez télécharger et intégrer.
 confPublishErr=Une autre mise à jour a été en conflit avec votre publication, veuillez réessayer l'opération
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

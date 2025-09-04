@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Імпортувати закріплену версію Gl
 confEmbedUpload=Щоб отримати кращий досвід редагування, скористайтеся стандартною макрокомандою draw.io для вставки порожньої діаграми, а потім у (меню Файл → Імпорт з → Пристрій...) виберіть файл, який потрібно завантажити та вставити.
 confPublishErr=Інше оновлення конфліктувало з вашою публікацією, будь ласка, спробуйте ще раз
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

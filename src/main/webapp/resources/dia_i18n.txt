@@ -1318,4 +1318,5 @@ gliffyVersionPinning=gliffyVersionPinning
 confEmbedUpload=confEmbedUpload
 confPublishErr=confPublishErr
 confACacheMapping=confACacheMapping
-confARemImpSpaces=confARemImpSpaces
+confARemImpPages=confARemImpPages
+delCachedData=delCachedData

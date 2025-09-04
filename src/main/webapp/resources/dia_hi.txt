@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Gliffy का पिन किया हुआ संस्
 confEmbedUpload=बेहतर संपादन अनुभव के लिए, कृपया एक खाली आरेख सम्मिलित करने के लिए draw.io का नियमित मैक्रो उपयोग करें, फिर (फ़ाइल मेनू → से आयात करें → डिवाइस...) से वह फ़ाइल चुनें जिसे आप अपलोड और एम्बेड करना चाहते हैं।
 confPublishErr=आपके प्रकाशन के साथ एक और अपडेट टकरा गया, कृपया पुनः प्रयास करें
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

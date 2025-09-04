@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Nhập phiên bản đã ghim của Gliffy thay vì phiên 
 confEmbedUpload=Để có trải nghiệm chỉnh sửa tốt hơn, vui lòng sử dụng macro draw.io thông thường để chèn sơ đồ trống, sau đó từ (Menu Tệp → Nhập Từ → Thiết bị...) chọn tệp bạn muốn tải lên và nhúng.
 confPublishErr=Một bản cập nhật khác đã xung đột với việc xuất bản của bạn, vui lòng thử lại thao tác
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

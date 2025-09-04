@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Importuokite prisegtą „Gliffy“ versiją vietoj naujaus
 confEmbedUpload=Geriau redagavimo patirčiai naudokite įprastą draw.io makrokomandą tuščiam diagramai įterpti, tada iš (Failo meniu → Importuoti iš → Įrenginio...) pasirinkite failą, kurį norite įkelti ir įterpti.
 confPublishErr=Kitas atnaujinimas konfliktavo su jūsų paskelbimu, bandykite dar kartą
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

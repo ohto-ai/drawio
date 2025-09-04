@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Importeer de vastgezette versie van Gliffy in plaats van de
 confEmbedUpload=Gebruik de reguliere draw.io-macro om een leeg diagram in te voegen voor een betere bewerkingservaring en selecteer vervolgens via (Bestand → Importeren uit → Apparaat...) het bestand dat je wilt uploaden en insluiten.
 confPublishErr=Een andere update conflicteerde met uw publicatie, probeer de bewerking opnieuw
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data
