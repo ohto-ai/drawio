@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Importovať pripnutú verziu Gliffy namiesto najnovšej ver
 confEmbedUpload=Pre lepšiu skúsenosť s úpravou použite bežné makro draw.io na vloženie prázdneho diagramu, potom z (ponuky Súbor → Importovať z → Zariadenie...) vyberte súbor, ktorý chcete nahrať a vložiť.
 confPublishErr=Ďalšia aktualizácia bola v konflikte s vaším publikovaním, skúste operáciu znova
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Importuj przypiętą wersję Gliffy zamiast najnowszej wers
 confEmbedUpload=Aby uzyskać lepsze doświadczenia z edycji, użyj zwykłego makra draw.io, aby wstawić pusty diagram, a następnie w menu Plik → Importuj z → Urządzenie... wybierz plik, który chcesz przesłać i osadzić.
 confPublishErr=Inna aktualizacja była w konflikcie z twoją publikacją, spróbuj ponownie
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

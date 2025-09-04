@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Importa la versione bloccata di Gliffy invece della version
 confEmbedUpload=Per una migliore esperienza di modifica, utilizza la macro regolare di draw.io per inserire un diagramma vuoto, quindi dal (Menu File → Importa Da → Dispositivo...) seleziona il file che desideri caricare e incorporare.
 confPublishErr=Un altro aggiornamento è entrato in conflitto con la tua pubblicazione, riprova l'operazione
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

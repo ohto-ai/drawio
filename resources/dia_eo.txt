@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Importu la versionon de Gliffy fiksitan anstataŭ la plej l
 confEmbedUpload=Por una mejor experiencia de edición, utilice el macro regular de draw.io para insertar un diagrama en blanco, luego desde (Menú Archivo → Importar desde → Dispositivo...) seleccione el archivo que desea cargar e incrustar.
 confPublishErr=Alia ĝisdatigo konfliktis kun via publikigo, bonvolu provi la operacion denove
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

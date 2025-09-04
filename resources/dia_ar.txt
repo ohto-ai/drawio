@@ -1318,4 +1318,5 @@ gliffyVersionPinning=‫استيراد إصدار Gliffy المثبت بدلاً
 confEmbedUpload=‫لتحسين تجربة التحرير، يُرجى استخدام الماكرو العادي لـ draw.io لإدراج مخطط فارغ، ثم من (قائمة الملف → استيراد من → الجهاز...) حدد الملف الذي تريد تحميله وتضمينه.‬
 confPublishErr=‫تعارض تحديث آخر مع النشر الخاص بك، يرجى محاولة العملية مرة أخرى‬
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

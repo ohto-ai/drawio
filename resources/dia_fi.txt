@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Tuo Gliffyn kiinnitetty versio uusimman version sijaan
 confEmbedUpload=Parhaan muokkauskokemuksen saamiseksi käytä tavallista draw.io-makroa tyhjän kaavion lisäämiseen ja valitse sitten (Tiedosto-valikko → Tuo → Laite...) tiedosto, jonka haluat ladata ja upottaa.
 confPublishErr=Toinen päivitys oli ristiriidassa julkaisusi kanssa, yritä uudelleen
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

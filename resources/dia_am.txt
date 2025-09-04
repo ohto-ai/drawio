@@ -1318,4 +1318,5 @@ gliffyVersionPinning=ግሊፊይ የተሰናከለውን ስሪት ከአዲ�
 confEmbedUpload=ለተሻለ የማረሚያ ተሞክሮ፣ እባክዎ ባዶ ዲያግራም ለማስገባት የ draw.io መደበኛ ማክሮን ይጠቀሙ፣ ከዚያም (የፋይል ሜኑ → ከ... አካል ማስመጣት) ውስጥ ማስገባት የሚፈልጉትን ፋይል ይምረጡ።
 confPublishErr=ሌላ አዘምን ከማትረፍዎ ጋር ተጣልቷል፣ እባክዎን እንደገና ይሞክሩ
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

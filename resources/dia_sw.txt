@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Ingiza toleo la Gliffy lililowekwa badala ya toleo jipya za
 confEmbedUpload=Kwa hali bora ya uhariri, tafadhali tumia makro la kawaida la draw.io kuingiza mchoro tupu, kisha kutoka (Menyu ya Faili → Ingiza kutoka → Kifaa...) chagua faili unayotaka kupakia na kupachika.
 confPublishErr=Pembaharuan lain bertentangan dengan penerbitan anda, sila cuba operasi semula
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data

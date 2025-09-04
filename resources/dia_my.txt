@@ -1318,4 +1318,5 @@ gliffyVersionPinning=Gliffy ၏ pin လုပ်ထားသောဗားရ�
 confEmbedUpload=ဖန်တီးခြင်းအတွေ့အကြုံပိုမိုကောင်းစေရန်အတွက်၊ စာရွက်ပုံသဏ္ဍာန်ဗလာတစ်ခုထည့်ရန် draw.io ၏ ပုံမှန်မက်ခရိုကို အသုံးပြုပါ၊ ထို့နောက် (ဖိုင်မီနူး → ထည့်သွင်းရန် → ကိရိယာ...) မှတင်လိုသောဖိုင်ကို ရွေးချယ်ပြီး ပေါင်းထည့်ပါ။
 confPublishErr=သင့်ပေးပို့မှုနှင့်အခြားအပ်ဒိတ်တစ်ခုဆန့်ကျင်နေသည်၊ ကျေးဇူးပြုပြီး ပြန်လည်ကြိုးစားပါ
 confACacheMapping=Cache page IDs mapping
-confARemImpSpaces=Remember imported spaces
+confARemImpPages=Remember imported pages
+delCachedData=Delete Cached Data
