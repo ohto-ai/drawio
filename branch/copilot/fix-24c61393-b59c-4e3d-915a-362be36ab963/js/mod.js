@@ -973,7 +973,7 @@ window.addEventListener("load", () => {
             
             // 只有在没有文件加载参数时才加载默认demo文件
             if (!hasFileParam) {
-                var url = "demo/manual.drawio.xml"; // 默认图表文件
+                var url = "demo/BP-2B型微机母线保护原理图.drawio.xml"; // 默认图表文件
                 if (url) {
                     window.ohtoai.loadGraphXML(url, true).then(() => {
                         console.log("图表已加载，正在初始化高亮管理器");
@@ -1065,5 +1065,5 @@ window.addEventListener("load", () => {
                 }
             }
         }, 1000);
-    }); // Use default timeout (10 seconds) instead of 120000ms (2 minutes)
+    }, 120000);
 });
