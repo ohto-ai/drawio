@@ -84,22 +84,22 @@ function main()
 			}
 		}
 
-                // Server file opening
-                function openServerFile(filename, callback) {
-                    var xhr = new XMLHttpRequest();
-                    xhr.open('GET', '/open/' + encodeURIComponent(filename), true);
-                    xhr.onreadystatechange = function() {
-                        if (xhr.readyState === 4) {
-                            if (xhr.status === 200) {
-                                callback(xhr.responseText);
-                            } else {
-                                console.error('Error opening server file:', xhr.status);
-                                callback(null);
-                            }
-                        }
-                    };
-                    xhr.send();
-                }
+		// Function to open server file
+		function openServerFile(filename, callback) {
+			var xhr = new XMLHttpRequest();
+			xhr.open('GET', '/open/' + encodeURIComponent(filename), true);
+			xhr.onreadystatechange = function() {
+				if (xhr.readyState === 4) {
+					if (xhr.status === 200) {
+						callback(xhr.responseText);
+					} else {
+						console.error('Error opening server file:', xhr.status);
+						callback(null);
+					}
+				}
+			};
+			xhr.send();
+		}
 
 		// Fetch both browser and server files
 		window.parent.listBrowserFiles(function(browserFiles) {
@@ -278,11 +278,8 @@ function main()
 													if (window.parent.openNew && window.parent.baseUrl != null)
 													{
 														var of = window.parent.openFile;
-														// Use relative URL to avoid port mismatch issues with MathJax
-														// Parse the current URL to ensure we use the same protocol and host
-														var currentUrl = new URL(window.location.href);
-														var newUrl = currentUrl.protocol + '//' + currentUrl.host + currentUrl.pathname + '#Lserver:' + encodeURIComponent(k);
-														window.parent.geOpenWindow(newUrl, function()
+														// Use a different URL pattern that includes server file data
+														window.parent.geOpenWindow(window.parent.baseUrl + '#Lserver:' + encodeURIComponent(k), function()
 														{
 															of.cancel(false);
 														}, function()
