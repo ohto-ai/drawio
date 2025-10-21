@@ -660,13 +660,14 @@ class ConnectionGraph:
 
         return positions
 
-    def export_drawio_xml(self, comp: Set[Any], output_path: str, title: str = "diagram"):
+    def export_drawio_xml(self, comp: Set[Any], output_path: Path, title: str = "diagram"):
         """
         简化导出：仅绘制端子顶点（无机柜/端子排容器），并绘制端子间的连接。
         回路号处理：
           - 若某回路号关联多个端子（>2），则在这些端子之间绘制成完全连通（每对一条线），
             且在连线上标注回路号（回路号作为边的 label）。
           - 同时保留由互联字段生成的直接边（若存在），标签为空或来源于共同回路号。
+        支持输出为 .drawio (mxfile XML) 或 .svg（将 mxfile XML 嵌入到 SVG 的 <metadata> 中，diagrams.net 可直接打开）。
         """
         if not comp:
             raise ValueError("组件为空，无法导出 drawio。")
@@ -676,7 +677,7 @@ class ConnectionGraph:
         if not terminals:
             raise ValueError("组件中无终端节点可绘制。")
 
-        # 布局：网格
+        # 布局：按 block 列、纵向排列
         positions = self._layout_terminals_grid(terminals)
 
         # id 映射
@@ -699,7 +700,8 @@ class ConnectionGraph:
             cab, blk, ter = node
             info = self.terminal_info_map.get(node)
             label_lines = f"{cab}/{blk}:{ter}"
-            label = escape("\n".join(label_lines))
+            # label_lines 是字符串，之前错误地用 join；直接 escape
+            label = escape(label_lines)
             x,y,w,h = positions.get(node, (40,40,120,48))
             style = "shape=rectangle;rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
             cells.append(f'<mxCell id="{cell_id}" value="{label}" style="{style}" vertex="1" parent="1">')
@@ -718,13 +720,11 @@ class ConnectionGraph:
             if a not in terminals or b not in terminals:
                 continue
             key = tuple(sorted([a,b], key=self._node_sort_key))
-            # 若双方属于相同回路，使用回路号作为标签（否则先用空标签）
             ai = self.terminal_info_map.get(a)
             bi = self.terminal_info_map.get(b)
             label = ""
             if ai and bi and ai.circuit_number and ai.circuit_number == bi.circuit_number:
                 label = ai.circuit_number
-            # 保持已有标签（如果已有回路号则不覆盖）
             if key in edges_to_draw and edges_to_draw[key]:
                 continue
             edges_to_draw[key] = label
@@ -740,16 +740,15 @@ class ConnectionGraph:
             if len(nodes) < 2:
                 continue
             nodes_sorted = sorted(nodes, key=self._node_sort_key)
-            # complete graph: 每对一条线，标签为回路号
             for i in range(len(nodes_sorted)):
                 for j in range(i+1, len(nodes_sorted)):
                     a = nodes_sorted[i]
                     b = nodes_sorted[j]
                     key = tuple(sorted([a,b], key=self._node_sort_key))
-                    # 如果已有标签为空或不同，覆盖为回路号（回路号优先）
+                    # 回路号优先覆盖
                     edges_to_draw[key] = circ
 
-        # 最终将 edges_to_draw 写入 cells
+        # 最终将 edges_to_draw 写入 cells（无向线）
         for (a, b), label in edges_to_draw.items():
             src = id_map.get(a)
             tgt = id_map.get(b)
@@ -757,13 +756,12 @@ class ConnectionGraph:
                 continue
             eid = nid()
             val = escape(label) if label else ""
-            # 无向线条：去掉起/终点箭头
             style = "edgeStyle=elbowEdgeStyle;edgeRadius=0;rounded=0;html=1;strokeColor=#000000;startArrow=none;endArrow=none"
             cells.append(f'<mxCell id="{eid}" value="{val}" style="{style}" edge="1" parent="1" source="{src}" target="{tgt}">')
             cells.append('  <mxGeometry relative="1" as="geometry"/>')
             cells.append('</mxCell>')
 
-        # 组装并写文件
+        # 组装 mxGraphModel XML（mxfile）
         mxroot = "<root>\n" + "\n".join(cells) + "\n</root>"
         mxgraph = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -775,20 +773,95 @@ class ConnectionGraph:
             f'  </diagram>\n'
             f'</mxfile>\n'
         )
+
+        # 如果用户要求 .svg，生成一个包含 mxfile XML 的 SVG 文件（同时放入 content 属性与 metadata）
+        out_path_lower = output_path.name.lower()
+        if out_path_lower.endswith(".svg"):
+            # 保留原始 mxfile 文本（含头部），用于 metadata CDATA
+            mx_for_cdata = mxgraph
+
+            # 构造用于 content 属性的编码文本：
+            # 需要把 <,>,& 转为实体（escape），双引号转为 &quot;，并把换行转为 &#10;（draw.io 常用）
+            mx_for_attr = escape(mxgraph)  # 转换 & < >
+            mx_for_attr = mx_for_attr.replace('"', "&quot;").replace("'", "&apos;")
+            mx_for_attr = mx_for_attr.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "&#10;")
+
+            # 计算可视 SVG 的宽高与 viewBox（若有 positions 可用更精确的 bbox）
+            try:
+                positions  # may be defined earlier in this function
+                xs = [p[0] for p in positions.values()]
+                ys = [p[1] for p in positions.values()]
+                ws = [p[2] for p in positions.values()]
+                hs = [p[3] for p in positions.values()]
+                minx = min(xs) if xs else 0
+                miny = min(ys) if ys else 0
+                maxx = max(x + w for x, w in zip(xs, ws)) if xs else 1600
+                maxy = max(y + h for y, h in zip(ys, hs)) if ys else 1200
+                svg_w = int(max(120, maxx - minx + 20))
+                svg_h = int(max(80, maxy - miny + 20))
+                view_box = f"{minx} {miny} {svg_w} {svg_h}"
+                width_attr = f'{svg_w}px'
+                height_attr = f'{svg_h}px'
+            except Exception:
+                # 兜底尺寸
+                svg_w, svg_h = 1600, 1200
+                view_box = f"0 0 {svg_w} {svg_h}"
+                width_attr = f"{svg_w}px"
+                height_attr = f"{svg_h}px"
+
+            # 生成 SVG：写入 XML 头、注释、DOCTYPE；在 <svg> 根添加 content 属性（实体化后的 mxfile）
+            svg_content = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<!-- Do not edit this file with editors other than draw.io -->\n'
+                '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" '
+                '"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n'
+                f'<svg xmlns="http://www.w3.org/2000/svg" '
+                'style="background: transparent; background-color: transparent; color-scheme: light dark;" '
+                'xmlns:xlink="http://www.w3.org/1999/xlink" '
+                'version="1.1" '
+                f'width="{width_attr}" height="{height_attr}" viewBox="{view_box}" '
+                f'content="{mx_for_attr}">\n'
+                '  <metadata>\n'
+                f'    <![CDATA[{mx_for_cdata}]]>\n'
+                '  </metadata>\n'
+                '  <!-- visible fallback: title text -->\n'
+                f'  <text x="10" y="20" font-family="Arial" font-size="14">{escape(title)}</text>\n'
+                '  <defs/>\n'
+                '  <g/>\n'
+                '</svg>\n'
+            )
+
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(svg_content)
+            print(f"已导出 drawio-兼容 SVG 到: {output_path}")
+            return
+
+        # 否则按原样写入 mxfile (.drawio/.xml)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(mxgraph)
         print(f"已导出 drawio XML 到: {output_path}")
 
 # 使用示例
 if __name__ == "__main__":
+    # 读取命令行参数
     # 创建读取器实例
-    reader = TerminalBlockReader()
     
-    xlsx_dir_path = r"C:\Users\OhtoAi\Downloads\完整端子排"
+    # 命令行参数解析
+    import argparse
+    # input_dir_path
+    # --output_dir_path
+    parser = argparse.ArgumentParser(description="读取端子排信息并构建连接图。")
+    parser.add_argument("input_dir_path", type=str, help="包含端子排 Excel 文件的目录路径")
+    parser.add_argument("--output_dir_path", type=str, default="outputs", help="输出 drawio 文件的目录路径")
+    parser.add_argument("--format", type=str, default="drawio", choices=["drawio", "svg"], help="输出文件格式，drawio 或 svg")
+    args = parser.parse_args()
+    
+    xlsx_dir_path = args.input_dir_path
     
     terminal_blocks = []
     xlsx_path = Path(xlsx_dir_path)
 
+    reader = TerminalBlockReader()
     # 遍历文件夹及子文件夹中的所有 .xlsx 文件（排除临时文件 ~$ 开头）
     for file_path in sorted(xlsx_path.rglob("*.xlsx")):
         if file_path.name.startswith("~$"):
@@ -818,9 +891,9 @@ if __name__ == "__main__":
 # import pprint
     import pprint
     # 根据回路查询组件
-    # comp = graph.get_component_by_circuit("N")
+    # comp = graph.get_component_by_circuit("A4061")
     # pprint.pprint(graph.summarize_component(comp))
-    # graph.export_drawio_xml(comp, "circuit_A4061.drawio", title="Circuit A4061")
+    # graph.export_drawio_xml(comp, Path("circuit_A4061.drawio"), title="Circuit A4061")
     
     # 导出所有回路组件的 drawio 文件, 没有回路号的不要导出, 端子少于2个的也不要导出
     all_comps = graph.get_all_components()
@@ -834,6 +907,9 @@ if __name__ == "__main__":
         if terminal_count < 2:
             continue
         safe_rep = rep.replace("/", "_").replace(":", "_")
-        output_file = f"component_{safe_rep}.drawio"
+        if args.format == "drawio":
+            output_file = Path(args.output_dir_path) / f"component_{safe_rep}.drawio"
+        else:
+            output_file = Path(args.output_dir_path) / f"component_{safe_rep}.drawio.svg"
         graph.export_drawio_xml(comp, output_file, title=f"Component {rep}")
 
