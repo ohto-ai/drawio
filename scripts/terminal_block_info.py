@@ -776,6 +776,9 @@ class ConnectionGraph:
 
         # 如果用户要求 .svg，生成一个包含 mxfile XML 的 SVG 文件（同时放入 content 属性与 metadata）
         out_path_lower = output_path.name.lower()
+        # 创建文件夹
+        import os
+        os.makedirs(output_path.parent, exist_ok=True)
         if out_path_lower.endswith(".svg"):
             # 保留原始 mxfile 文本（含头部），用于 metadata CDATA
             mx_for_cdata = mxgraph
