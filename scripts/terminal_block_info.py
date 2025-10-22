@@ -151,8 +151,8 @@ class TerminalBlockReader:
                 # 如果左侧右侧为空，则使用前一行的值
                 if not terminal_info.side and terminal_blocks:
                     terminal_info.side = terminal_blocks[-1].side
-                if not terminal_info.cabinet_name:
-                    terminal_info.cabinet_name = cabinet_name
+                if not terminal_info.cabinet_name and terminal_blocks:
+                    terminal_info.cabinet_name = terminal_blocks[-1].cabinet_name or cabinet_name
                 terminal_blocks.append(terminal_info)
                 successful_count += 1
             except Exception as e:
