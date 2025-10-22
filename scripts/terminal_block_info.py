@@ -228,6 +228,8 @@ class ConnectionGraph:
         self.terminal_info_map: Dict[tuple, TerminalInfo] = {}
         # 记录边集合，用 frozenset({a,b}) 保证无向边唯一（a/b 可以是 tuple 或 string）
         self.edges: Set[frozenset] = set()
+        # 可选的边标签（frozenset({a,b}) -> str），用于标注来自回路表/柜内连接表的连接关系（如 开关/常闭开关）
+        self.edge_labels: Dict[frozenset, str] = {}
 
     @staticmethod
     def make_terminal_node(cabinet: str, block: str, terminal: str) -> tuple:
@@ -251,21 +253,25 @@ class ConnectionGraph:
         n = (name or "").strip()
         return f"{ConnectionGraph.INTERNAL_PREFIX}{n}"
 
-    def _record_edge(self, a: Any, b: Any):
-        """内部：记录无向边为 frozenset，以保证唯一性"""
+    def _record_edge(self, a: Any, b: Any, label: Optional[str] = None):
+        """内部：记录无向边为 frozenset，以保证唯一性；可附带边标签（不一定覆盖已有回路标签）"""
         if a is None or b is None:
             return
         if a == "" or b == "":
             return
-        self.edges.add(frozenset({a, b}))
+        key = frozenset({a, b})
+        self.edges.add(key)
+        if label and label.strip():
+            # 只在没有标签或存在时用后者覆盖（保守策略：如果已有标签与回路/内部标签冲突，导出阶段会按优先级处理）
+            self.edge_labels[key] = label.strip()
 
-    def add_edge(self, a: Any, b: Any):
-        """在邻接表中加入无向边并记录到 edges"""
+    def add_edge(self, a: Any, b: Any, label: Optional[str] = None):
+        """在邻接表中加入无向边并记录到 edges，支持可选边标签"""
         if not a or not b:
             return
         self.adj[a].add(b)
         self.adj[b].add(a)
-        self._record_edge(a, b)
+        self._record_edge(a, b, label)
 
     def _parse_interconnect(self, inter: str, default_cab: str, default_blk: str) -> Optional[Any]:
         """
@@ -274,7 +280,7 @@ class ConnectionGraph:
             - 完整： "Cabinet/Block:Terminal"
             - 带端子排 "Block:Terminal"（使用默认机柜）
             - 仅端子号 "Terminal"（使用默认机柜和端子排）
-        返回节点（三元组）或 None（解析失败）。
+        返回节点（三元组）或 None（解析失败）。注意：对于仅端子号，返回 (default_cab, default_blk, terminal)。
         """
         s = (inter or "").strip()
         if not s:
@@ -309,13 +315,21 @@ class ConnectionGraph:
             if parsed:
                 self.add_edge(node, parsed)
 
-        # 处理 internal_wiring：把每个 internal 名称当作全局字符串节点加入（比如 "1DK" 或 "3DK:1"）
-        # 并与当前端子建立边。这样同一 internal 名称连接的多个端子会被视为连通。
+        # 处理 internal_wiring：尝试把 internal 名称解析为端子（三元组）；若解析成功则把那个端子作为普通端子处理并连线，
+        # 否则退回到旧的字符串 internal 节点（保持兼容旧数据格式）
         for internal in terminal.internal_wiring:
             if not internal:
                 continue
-            inode = self.make_internal_node(internal)
-            self.add_edge(node, inode)
+            # first try parsing as a terminal-like name (supports "Cabinet/Block:Terminal", "Block:Terminal", "Terminal")
+            parsed = self._parse_interconnect(internal, terminal.cabinet_name, terminal.terminal_block)
+            if parsed:
+                # ensure parsed node exists in adj (if actual TerminalInfo present, it'll already be there after build_from_terminals)
+                _ = self.adj[parsed]
+                self.add_edge(node, parsed)
+            else:
+                # fallback: keep legacy internal string node
+                inode = self.make_internal_node(internal)
+                self.add_edge(node, inode)
 
         return node
 
@@ -324,6 +338,7 @@ class ConnectionGraph:
         self.adj.clear()
         self.terminal_info_map.clear()
         self.edges.clear()
+        self.edge_labels.clear()
         # 先加入所有端子节点（以便互联引用不存在时也能查询到节点）
         for t in terminals:
             node = self.make_terminal_node(t.cabinet_name, t.terminal_block, t.terminal_number)
@@ -433,8 +448,22 @@ class ConnectionGraph:
         """把组件转成可序列化的摘要结构，包含节点和边信息（用于拓扑绘制）"""
         terminals = [n for n in comp if isinstance(n, tuple)]
         circuits = [n[len(self.CIRCUIT_PREFIX):] for n in comp if isinstance(n, str) and n.startswith(self.CIRCUIT_PREFIX)]
-        # internal wiring 名称（去掉前缀）
-        internals = [n[len(self.INTERNAL_PREFIX):] for n in comp if isinstance(n, str) and n.startswith(self.INTERNAL_PREFIX)]
+        # internal wiring 名称（合并来自字符串 internal 节点与各端子的 internal_wiring 字段）
+        internals_set = set()
+        for n in comp:
+            if isinstance(n, str) and not n.startswith(self.CIRCUIT_PREFIX):
+                if n.startswith(self.INTERNAL_PREFIX):
+                    internals_set.add(n[len(self.INTERNAL_PREFIX):])
+                else:
+                    internals_set.add(n)
+        # 也从每个端子的 TerminalInfo.internal_wiring 收集名称
+        for t in terminals:
+            info = self.terminal_info_map.get(t)
+            if info:
+                for name in info.internal_wiring:
+                    if name:
+                        internals_set.add(name)
+        internals = sorted(internals_set)
         edges = self.get_component_edges(comp)
         adj = self.get_component_subgraph_adj(comp)
         # 附带每个终端的 TerminalInfo（若存在）
@@ -442,7 +471,7 @@ class ConnectionGraph:
         return {
             "terminals": sorted([self.make_terminal_id_str(n) for n in terminals]),
             "circuits": sorted(circuits),
-            "internals": sorted(internals),
+            "internals": internals,
             "size": len(comp),
             "edges": edges,
             "adj": adj,
@@ -678,6 +707,125 @@ class ConnectionGraph:
 
         return positions
 
+    def load_connection_sheets(self, dir_path: str):
+        """
+        读取一个文件夹中所有回路表（Excel），只处理名为或包含 '柜内端子连接' 的 sheet。
+        每行关注 '端子号' 和 '互联端子号'，以及可选 '连接关系'（为空/开关/常闭开关等）。
+        名称可以是全局端子号（例如 1n1x4），也可以是带块名或柜名的形式。
+        将根据这些信息在图中添加边或标注边类型（将作为边标签保存在 edge_labels）。
+        """
+        p = Path(dir_path)
+        if not p.exists():
+            print(f"连接表目录不存在: {dir_path}")
+            return
+
+        # helper: 用已有 terminal_info_map 查找与给定名称匹配的节点集合
+        def resolve_name_to_nodes(name: str) -> List[Any]:
+            name = (name or "").strip()
+            if not name:
+                return []
+            # 拆分复合（如果传入多个在一格的情况，调用者应先拆分）
+            # 解析是否含有 ':' 或 '/'
+            if ":" in name or "/" in name:
+                parsed = self._parse_interconnect(name, None, None)
+                if not parsed:
+                    return []
+                cab_p, blk_p, ter_p = parsed
+                res = []
+                for node in self.terminal_info_map.keys():
+                    # node: (cab, blk, ter)
+                    match = True
+                    if ter_p and node[2] != ter_p:
+                        match = False
+                    if cab_p and cab_p != "" and node[0] != cab_p:
+                        match = False
+                    if blk_p and blk_p != "" and node[1] != blk_p:
+                        match = False
+                    if match:
+                        res.append(node)
+                return res
+            else:
+                # 仅端子号：全局匹配 terminal_number 字段相等的所有端子
+                res = [n for n in self.terminal_info_map.keys() if n[2] == name]
+                return res
+
+        # 分割多值的简单函数（支持 ; , 中文分号逗号和空格）
+        def split_multi(value: str) -> List[str]:
+            if not value:
+                return []
+            parts = re.split(r'[;,，；/]+', value)
+            return [p.strip() for p in parts if p.strip()]
+
+        # 遍历目录中的 Excel 文件
+        for file in sorted(p.rglob("*.xlsx")):
+            if file.name.startswith("~$"):
+                continue
+            try:
+                xls = pd.ExcelFile(file)
+            except Exception as e:
+                print(f"无法打开 Excel 文件 {file}: {e}")
+                continue
+            for sheet in xls.sheet_names:
+                if "柜内端子连接" not in sheet:
+                    continue
+                try:
+                    df = pd.read_excel(xls, sheet_name=sheet)
+                except Exception as e:
+                    print(f"读取表 {file} - {sheet} 失败: {e}")
+                    continue
+                # 规范列名
+                df.columns = [str(c).strip() for c in df.columns]
+                # 尝试寻找关键列名，宽松匹配
+                col_map = {c: c for c in df.columns}
+                # 必需列: 端子号, 互联端子号 (可能列名稍有差别)
+                def find_col(possible: List[str]) -> Optional[str]:
+                    for cand in possible:
+                        for c in df.columns:
+                            if cand in c:
+                                return c
+                    return None
+
+                col_term = find_col(["端子号", "端子", "端子编号"])
+                col_inter = find_col(["互联端子号", "互联端子", "互联"])
+                col_relation = find_col(["连接关系", "关系", "连接类型"])
+
+                if not col_term or not col_inter:
+                    print(f"表 {file}:{sheet} 未找到必需列 '端子号' 或 '互联端子号'，跳过")
+                    continue
+
+                for idx, row in df.iterrows():
+                    left_raw = str(row.get(col_term, "") or "").strip()
+                    right_raw = str(row.get(col_inter, "") or "").strip()
+                    relation = str(row.get(col_relation, "") or "").strip() if col_relation else ""
+
+                    left_names = split_multi(left_raw)
+                    right_names = split_multi(right_raw)
+                    if not left_names or not right_names:
+                        continue
+
+                    left_nodes = []
+                    for ln in left_names:
+                        left_nodes.extend(resolve_name_to_nodes(ln))
+                    right_nodes = []
+                    for rn in right_names:
+                        right_nodes.extend(resolve_name_to_nodes(rn))
+
+                    # 若无法解析到任何真实端子节点，则跳过并打印警告
+                    if not left_nodes or not right_nodes:
+                        # 尝试宽松匹配：如果名字本身存在于 terminal_info_map 的 terminal_number 里但未找到，仍跳过
+                        print(f"在 {file}:{sheet} 第 {idx+1} 行未解析到端子节点: 左 {left_raw} -> {left_nodes}, 右 {right_raw} -> {right_nodes}")
+                        continue
+
+                    # 为每对端子建立边，label 根据 relation（开关/常闭开关/空）
+                    for a in left_nodes:
+                        for b in right_nodes:
+                            if a == b:
+                                continue
+                            lbl = relation if relation else None
+                            # 把连接加入图中（若已有回路标签，导出阶段会以回路为优先）
+                            self.add_edge(a, b, label=lbl)
+                print(f"已处理连接表: {file} - {sheet}")
+
     def export_drawio_xml(self, comp: Set[Any], output_path: Path, title: str = "diagram"):
         """
         简化导出：仅绘制端子顶点（无机柜/端子排容器），并绘制端子间的连接。
@@ -686,21 +834,44 @@ class ConnectionGraph:
             且在连线上标注回路号（回路号作为边的 label）。
           - internal_wiring 也会按名称在该名称关联的端子间生成完全连通（标签为 internal 名称），
             但不会覆盖已有的回路标签（回路标签优先）。
-          - 同时保留由互联字段生成的直接边（若存在），标签为空或来源于共同回路号 / internal 名称。
+          - 同时保留由互联字段生成的直接边（若存在），标签为空或来源于共同回路号 / internal 名称 / 连接表标签。
         支持输出为 .drawio (mxfile XML) ，diagrams.net 可直接打开）。
         """
         if not comp:
             raise ValueError("组件为空，无法导出 drawio。")
 
-        # 仅保留端子节点
-        terminals = [n for n in comp if isinstance(n, tuple)]
-        if not terminals:
-            raise ValueError("组件中无终端节点可绘制。")
+        # 将要绘制的节点：排除回路节点，但包含字符串形式的 internal 节点（兼容旧格式）
+        draw_nodes = [n for n in comp if not (isinstance(n, str) and n.startswith(self.CIRCUIT_PREFIX))]
+        if not draw_nodes:
+            raise ValueError("组件中无可绘制节点。")
 
-        # 布局：按 block 列、纵向排列
-        positions = self._layout_terminals_grid(terminals)
+        # 为字符串节点（internal 名称）生成用于布局的三元组表示：
+        # 若字符串可以解析为端子（如 "Block:Terminal" 等），则使用解析结果；否则用 ('', name, '') 作为合成节点。
+        layout_terms = []
+        layout_map: Dict[Any, tuple] = {}
+        for n in draw_nodes:
+            if isinstance(n, tuple):
+                layout_map[n] = n
+                layout_terms.append(n)
+            else:
+                name = n
+                # 去掉 INTERNAL_PREFIX（若存在）
+                if name.startswith(self.INTERNAL_PREFIX):
+                    name = name[len(self.INTERNAL_PREFIX):]
+                # 尝试解析为端子三元组
+                parsed = self._parse_interconnect(name, None, None)
+                if parsed:
+                    layout_map[n] = parsed
+                    layout_terms.append(parsed)
+                else:
+                    synthetic = ("", name, "")
+                    layout_map[n] = synthetic
+                    layout_terms.append(synthetic)
 
-        # id 映射
+        # 布局：按 block 列、纵向排列（使用合成/解析后的三元组）
+        positions = self._layout_terminals_grid(layout_terms)
+
+        # id 映射（基于原始节点：tuple 或 string）
         id_map: Dict[Any, str] = {}
         next_id = 2
         def nid():
@@ -713,16 +884,20 @@ class ConnectionGraph:
         cells.append('<mxCell id="0"/>')
         cells.append('<mxCell id="1" parent="0"/>')
 
-        # 顶点：只绘制端子
-        for node in sorted(terminals, key=self._node_sort_key):
+        # 顶点：为所有 draw_nodes 绘制（包括解析/合成的 internal 节点）
+        for node in sorted(draw_nodes, key=self._node_sort_key):
             cell_id = nid()
             id_map[node] = cell_id
-            cab, blk, ter = node
-            info = self.terminal_info_map.get(node)
-            label_lines = f"{cab}/{blk}:{ter}"
-            # label_lines 是字符串，之前错误地用 join；直接 escape
-            label = escape(label_lines)
-            x,y,w,h = positions.get(node, (40,40,120,48))
+            layout_node = layout_map.get(node)
+            # label 优先使用原始字符串（去掉 INTERNAL_PREFIX），若为 tuple 则使用 make_terminal_id_str
+            if isinstance(node, str):
+                lab = node
+                if lab.startswith(self.INTERNAL_PREFIX):
+                    lab = lab[len(self.INTERNAL_PREFIX):]
+                label = escape(lab)
+            else:
+                label = escape(self.make_terminal_id_str(layout_node))
+            x, y, w, h = positions.get(layout_node, (40, 40, 120, 48))
             style = "shape=rectangle;rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
             cells.append(f'<mxCell id="{cell_id}" value="{label}" style="{style}" vertex="1" parent="1">')
             cells.append(f'  <mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/>')
@@ -730,29 +905,34 @@ class ConnectionGraph:
 
         # 构造要绘制的边集合：使用集合避免重复
         edges_to_draw = {}  # (a,b) tuple(sorted) -> label (如果多条来源，优先回路号)
-        # 1) 先添加由 self.edges 中直接两端为端子的边（可能来自互联或回路节点连接）
+        # 1) 来自 self.edges 的直接边（只要两端都在 draw_nodes 中就绘制）
         for e in self.edges:
             if len(e) != 2:
                 continue
             a, b = tuple(e)
-            if not (isinstance(a, tuple) and isinstance(b, tuple)):
+            if a not in draw_nodes or b not in draw_nodes:
                 continue
-            if a not in terminals or b not in terminals:
-                continue
-            key = tuple(sorted([a,b], key=self._node_sort_key))
-            ai = self.terminal_info_map.get(a)
-            bi = self.terminal_info_map.get(b)
+            key = tuple(sorted([a, b], key=self._node_sort_key))
             label = ""
+            # 若两端都是实际端子且共享同一回路号，则以回路号为标签
+            ai = self.terminal_info_map.get(a) if isinstance(a, tuple) else None
+            bi = self.terminal_info_map.get(b) if isinstance(b, tuple) else None
             if ai and bi and ai.circuit_number and ai.circuit_number == bi.circuit_number:
                 label = ai.circuit_number
+            # 若没有回路标签，检查是否存在来自连接表/其它来源的边标签
+            if not label:
+                edge_key = frozenset({a, b})
+                if edge_key in self.edge_labels:
+                    label = self.edge_labels[edge_key]
+            # 回路标签优先覆盖已有标签
             if key in edges_to_draw and edges_to_draw[key]:
                 continue
             edges_to_draw[key] = label
 
-        # 2) 对每个回路号，若包含多个端子，生成完全连通（每对标注回路号），并合并到 edges_to_draw
+        # 2) 对每个回路号，若包含多个端子，生成完全连通（每对标注回路号），并合并到 edges_to_draw（仅包含 draw_nodes）
         circuits = defaultdict(list)
-        for node in terminals:
-            info = self.terminal_info_map.get(node)
+        for node in draw_nodes:
+            info = self.terminal_info_map.get(node) if isinstance(node, tuple) else None
             if info and info.circuit_number:
                 circuits[info.circuit_number].append(node)
 
@@ -764,32 +944,8 @@ class ConnectionGraph:
                 for j in range(i+1, len(nodes_sorted)):
                     a = nodes_sorted[i]
                     b = nodes_sorted[j]
-                    key = tuple(sorted([a,b], key=self._node_sort_key))
-                    # 回路号优先覆盖
-                    edges_to_draw[key] = circ
-
-        # 3) internal_wiring 作为全局名称：若多个端子引用相同 internal 名称，则在这些端子间生成完全连通
-        internals = defaultdict(list)
-        for node in terminals:
-            info = self.terminal_info_map.get(node)
-            if not info:
-                continue
-            for internal in info.internal_wiring:
-                if internal:
-                    internals[internal].append(node)
-
-        for internal_name, nodes in internals.items():
-            if len(nodes) < 2:
-                continue
-            nodes_sorted = sorted(nodes, key=self._node_sort_key)
-            for i in range(len(nodes_sorted)):
-                for j in range(i+1, len(nodes_sorted)):
-                    a = nodes_sorted[i]
-                    b = nodes_sorted[j]
-                    key = tuple(sorted([a,b], key=self._node_sort_key))
-                    # internal 标签仅在当前无回路标签的情况下写入，避免覆盖回路号
-                    if key not in edges_to_draw or not edges_to_draw[key]:
-                        edges_to_draw[key] = internal_name
+                    key = tuple(sorted([a, b], key=self._node_sort_key))
+                    edges_to_draw[key] = circ  # 回路号优先覆盖
 
         # 最终将 edges_to_draw 写入 cells（无向线）
         for (a, b), label in edges_to_draw.items():
@@ -835,15 +991,17 @@ if __name__ == "__main__":
     # input_dir_path
     # --output_dir_path
     parser = argparse.ArgumentParser(description="读取端子排信息并构建连接图。")
-    parser.add_argument("input_dir_path", type=str, help="包含端子排 Excel 文件的目录路径")
+    parser.add_argument("--term", type=str, help="包含端子排 Excel 文件的目录路径")
+    parser.add_argument("--route", type=str, help="包含路由表 Excel 文件的目录路径")
     parser.add_argument("--output_dir_path", type=str, default="outputs", help="输出 drawio 文件的目录路径")
     # parser.add_argument("--format", type=str, default="drawio", choices=["drawio", "svg"], help="输出文件格式，drawio 或 svg")
     args = parser.parse_args()
     
-    xlsx_dir_path = args.input_dir_path
+    term_xlsx_dir_path = args.term
+    route_xlsx_dir_path = args.route
     
     terminal_blocks = []
-    xlsx_path = Path(xlsx_dir_path)
+    xlsx_path = Path(term_xlsx_dir_path)
 
     reader = TerminalBlockReader()
     # 遍历文件夹及子文件夹中的所有 .xlsx 文件（排除临时文件 ~$ 开头）
@@ -870,14 +1028,15 @@ if __name__ == "__main__":
 
     # 假设 reader 已读取完所有 terminal_blocks（TerminalInfo 列表）
     graph = ConnectionGraph()
+    graph.load_connection_sheets(route_xlsx_dir_path)
     graph.build_from_terminals(terminal_blocks)
 
 # import pprint
     import pprint
     # 根据回路查询组件
-    # comp = graph.get_component_by_circuit("A4061")
+    # comp = graph.get_component_by_circuit("A4451")
     # pprint.pprint(graph.summarize_component(comp))
-    # graph.export_drawio_xml(comp, Path("circuit_A4061.drawio"), title="Circuit A4061")
+    # graph.export_drawio_xml(comp, Path("circuit_A4451.drawio"), title="Circuit A4451")
     
     # 导出所有回路组件的 drawio 文件, 没有回路号的不要导出, 端子少于2个的也不要导出
     all_comps = graph.get_all_components()
