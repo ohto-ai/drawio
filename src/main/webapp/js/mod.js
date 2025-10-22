@@ -770,7 +770,7 @@ window.addEventListener("load", () => {
                     console.log('修改文件菜单：移除客户端保存选项');
                     
                     // 添加基本的文件操作，但移除saveAs和exportAs
-                    editorUi.menus.addMenuItems(menu, ['new', 'open'], parent);
+                    editorUi.menus.addMenuItems(menu, ['new', 'open', 'saveAs'], parent);
                     
                     // 添加分隔符
                     menu.addSeparator(parent);
