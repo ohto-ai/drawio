@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="" agent="python" etag="">
+  <diagram name="Component @CIRCUIT:21B" id="diagram1">
+    <mxGraphModel dx="1420" dy="768" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169">
+      <root>
+<mxCell id="0"/>
+<mxCell id="1" parent="0"/>
+<mxCell id="2" value="4n12X24" style="shape=rectangle;rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000" vertex="1" parent="1">
+  <mxGeometry x="460" y="40" width="120" height="48" as="geometry"/>
+</mxCell>
+<mxCell id="3" value="5011断路器/4D:113" style="shape=rectangle;rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000" vertex="1" parent="1">
+  <mxGeometry x="40" y="40" width="120" height="48" as="geometry"/>
+</mxCell>
+<mxCell id="4" value="5021断路器/4D:113" style="shape=rectangle;rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000" vertex="1" parent="1">
+  <mxGeometry x="250" y="40" width="120" height="48" as="geometry"/>
+</mxCell>
+<mxCell id="5" value="" style="edgeStyle=elbowEdgeStyle;edgeRadius=0;rounded=0;html=1;strokeColor=#000000;startArrow=none;endArrow=none" edge="1" parent="1" source="2" target="4">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="6" value="" style="edgeStyle=elbowEdgeStyle;edgeRadius=0;rounded=0;html=1;strokeColor=#000000;startArrow=none;endArrow=none" edge="1" parent="1" source="2" target="3">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="7" value="21B" style="edgeStyle=elbowEdgeStyle;edgeRadius=0;rounded=0;html=1;strokeColor=#000000;startArrow=none;endArrow=none" edge="1" parent="1" source="3" target="4">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+</root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
