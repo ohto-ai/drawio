@@ -975,7 +975,7 @@ window.addEventListener("load", () => {
             if (!hasFileParam) {
                 var url = "demo/BP-2B.drawio.xml"; // 默认图表文件
                 if (url) {
-                    window.ohtoai.loadGraphXML(url, true).then(() => {
+                    window.ohtoai.loadGraphXML(url, false).then(() => {
                         console.log("图表已加载，正在初始化高亮管理器");
                         const graph = window.sb.editorUi.editor.graph;
                         window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
