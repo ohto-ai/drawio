@@ -34,7 +34,7 @@ function loadGraphXML(url, readonly = false) {
     return fetch(url)
         .then(response => {
             if (!response.ok) {
-                throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+                throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}, URL: ${url}`);
             }
             return response.text();
         })
@@ -966,11 +966,31 @@ window.addEventListener("load", () => {
 
         // 延迟初始化默认图表和高亮管理器
         setTimeout(() => {
-            // 检查URL中是否有服务器文件标识符
+            // 优先支持 ?url= 或 #Lurl: 指定远端/本地文件
+            var urlParam = getUrlFileFromLocation();
+            if (urlParam && urlParam.url) {
+                console.log("检测到 URL 参数，正在加载:", urlParam.url, "只读:", !!urlParam.readonly);
+                window.root_manager.loadGraphXML(urlParam.url, !!urlParam.readonly).then(() => {
+                    console.log("通过 URL 加载的图表已加载，正在初始化高亮管理器");
+                    const graph = window.sb.editorUi.editor.graph;
+                    window.root_manager.stripedOverlayManager = new StripedOverlayManager(graph);
+                    window.root_manager.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
+                        if (!cell || !cell.value) return false;
+                        if (typeof cell.value === "string") return false;
+                        return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
+                    }, ['#ff0000', '#ffff00']);
+                    window.root_manager.stripedOverlayManager.refresh();
+                }).catch(error => {
+                    console.error("通过 URL 加载图表失败:", error);
+                    // 失败时回退到其它逻辑（例如等待后续加载）
+                });
+                return;
+            }
+
             var hash = window.location.hash;
             var isServerFile = hash && hash.includes('#Lserver:');
             var hasFileParam = hash && (hash.includes('#L') || isServerFile);
-            
+
             // 只有在没有文件加载参数时才加载默认demo文件
             if (!hasFileParam) {
                 var url = "demo/BP-2B.drawio.xml"; // 默认图表文件
@@ -979,7 +999,6 @@ window.addEventListener("load", () => {
                         console.log("图表已加载，正在初始化高亮管理器");
                         const graph = window.sb.editorUi.editor.graph;
                         window.root_manager.stripedOverlayManager = new StripedOverlayManager(graph);
-                        // 初始化告警单元格的条件高亮
                         window.root_manager.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
                             if (!cell || !cell.value) return false;
                             if (typeof cell.value === "string") return false;
@@ -1003,7 +1022,6 @@ window.addEventListener("load", () => {
                                 console.log("服务器文件已加载，正在初始化高亮管理器");
                                 const graph = window.sb.editorUi.editor.graph;
                                 window.root_manager.stripedOverlayManager = new StripedOverlayManager(graph);
-                                // 初始化告警单元格的条件高亮
                                 window.root_manager.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
                                     if (!cell || !cell.value) return false;
                                     if (typeof cell.value === "string") return false;
@@ -1035,7 +1053,6 @@ window.addEventListener("load", () => {
                             if (currentFile) {
                                 console.log("文件已加载，正在初始化高亮管理器");
                                 window.root_manager.stripedOverlayManager = new StripedOverlayManager(graph);
-                                // 初始化告警单元格的条件高亮
                                 window.root_manager.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
                                     if (!cell || !cell.value) return false;
                                     if (typeof cell.value === "string") return false;
@@ -1067,3 +1084,33 @@ window.addEventListener("load", () => {
         }, 1000);
     }); // Use default timeout (10 seconds) instead of 120000ms (2 minutes)
 });
+
+/**
+ * @brief 从 location 的 query/hash 中提取通用 url 文件及只读标志
+ * @returns {object|null} {url, readonly} 或 null
+ */
+function getUrlFileFromLocation() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        let url = params.get('graph_url');
+        let readonly = params.get('readonly') === '1' || params.get('readonly') === 'true';
+
+        if (!url) {
+            const hash = window.location.hash || '';
+            const match = hash.match(/#Lurl:([^&]+)/);
+            if (match && match[1]) {
+                url = decodeURIComponent(match[1]);
+            }
+            if (!readonly) {
+                readonly = /readonly=(1|true)/.test(hash);
+            }
+        }
+
+        if (url) {
+            return { url: url, readonly: !!readonly };
+        }
+    } catch (e) {
+        console.warn('getUrlFileFromLocation error', e);
+    }
+    return null;
+}
