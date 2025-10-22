@@ -1073,8 +1073,8 @@ if __name__ == "__main__":
             continue
         # 检查端子数量
         terminal_count = sum(1 for n in comp if isinstance(n, tuple))
-        if terminal_count < 2:
-            continue
+        # if terminal_count < 2:
+        #     continue
         safe_rep = rep.replace("/", "_").replace(":", "_")
         output_file = Path(args.output_dir_path) / f"component_{safe_rep}.drawio"
         # if args.format == "drawio":
