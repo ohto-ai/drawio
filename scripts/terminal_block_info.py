@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from collections import deque, defaultdict
 from xml.sax.saxutils import escape
+import os
+import io
 
 @dataclass
 class TerminalInfo:
@@ -1008,11 +1010,24 @@ class ConnectionGraph:
             f'</mxfile>\n'
         )
 
-        import os
         os.makedirs(output_path.parent, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(mxgraph)
         print(f"已导出 drawio XML 到: {output_path}")
+
+def make_filename_for_component(comp, graph, prefix="component", ext="drawio"):
+    """
+    Compose an export filename that includes all circuit numbers present in the component.
+    Circuits are sorted and joined by underscore. If no circuits, use 'no_circuit'.
+    """
+    summary = graph.summarize_component(comp)
+    circuits = summary.get("circuits", [])
+    if circuits:
+        circuits_part = "_".join(sorted(circuits))
+    else:
+        circuits_part = "no_circuit"
+    filename = f"{prefix}_circuits_{circuits_part}.{ext}"
+    return filename
 
 # 使用示例（保留原有入口，仅供快速测试）
 if __name__ == "__main__":
@@ -1075,11 +1090,130 @@ if __name__ == "__main__":
         terminal_count = sum(1 for n in comp if isinstance(n, tuple))
         # if terminal_count < 2:
         #     continue
-        safe_rep = rep.replace("/", "_").replace(":", "_")
-        output_file = Path(args.output_dir_path) / f"component_{safe_rep}.drawio"
+
+        output_file = Path(args.output_dir_path) / make_filename_for_component(comp, graph)
         # if args.format == "drawio":
         #     output_file = Path(args.output_dir_path) / f"component_{safe_rep}.drawio"
         # else:
             # output_file = Path(args.output_dir_path) / f"component_{safe_rep}.drawio.svg"
         graph.export_drawio_xml(comp, output_file, title=f"Component {rep}")
+
+def test_single_circuit_filename_and_summary(tmp_path):
+    # two terminals in same circuit C1
+    t1 = TerminalInfo(
+        cabinet_name="Cab1", circuit_number="C1", terminal_block_desc="", terminal_block="B1",
+        terminal_number="1", side="L", internal_wiring=[], interconnect_terminal=[],
+        function_desc="", external_wiring="", cable_core_number="", cable_number="",
+        core_number="", cable_model="", opposite_device_number="", opposite_device_name="",
+        remarks="", col_wire_text="", cable_type=""
+    )
+    t2 = TerminalInfo(
+        cabinet_name="Cab1", circuit_number="C1", terminal_block_desc="", terminal_block="B1",
+        terminal_number="2", side="L", internal_wiring=[], interconnect_terminal=[],
+        function_desc="", external_wiring="", cable_core_number="", cable_number="",
+        core_number="", cable_model="", opposite_device_number="", opposite_device_name="",
+        remarks="", col_wire_text="", cable_type=""
+    )
+
+    g = ConnectionGraph()
+    g.build_from_terminals([t1, t2])
+
+    comps = g.get_all_components()
+    # find component that contains our terminals
+    found = False
+    for rep, comp in comps.items():
+        # summary should include circuit C1
+        summary = g.summarize_component(comp)
+        if "C1" in summary.get("circuits", []):
+            found = True
+            fname = make_filename_for_component(comp, g, prefix="component_test")
+            assert "C1" in fname
+            break
+    assert found, "Expected component with circuit C1 not found"
+
+def test_export_drawio_writes_file(tmp_path):
+    # create two connected terminals (same circuit) and export
+    t1 = TerminalInfo(
+        cabinet_name="CabX", circuit_number="X1", terminal_block_desc="", terminal_block="Blk",
+        terminal_number="10", side="R", internal_wiring=[], interconnect_terminal=[],
+        function_desc="", external_wiring="", cable_core_number="", cable_number="",
+        core_number="", cable_model="", opposite_device_number="", opposite_device_name="",
+        remarks="", col_wire_text="", cable_type=""
+    )
+    t2 = TerminalInfo(
+        cabinet_name="CabX", circuit_number="X1", terminal_block_desc="", terminal_block="Blk",
+        terminal_number="11", side="R", internal_wiring=[], interconnect_terminal=[],
+        function_desc="", external_wiring="", cable_core_number="", cable_number="",
+        core_number="", cable_model="", opposite_device_number="", opposite_device_name="",
+        remarks="", col_wire_text="", cable_type=""
+    )
+
+    g = ConnectionGraph()
+    g.build_from_terminals([t1, t2])
+
+    # pick a component that includes these terminals
+    comps = g.get_all_components()
+    comp_to_export = None
+    for rep, comp in comps.items():
+        if any(isinstance(n, tuple) and n[2] in ("10", "11") for n in comp):
+            comp_to_export = comp
+            break
+
+    assert comp_to_export is not None, "Component to export not found"
+
+    out_file = tmp_path / "test_export.drawio"
+    # ensure directory exists and export
+    g.export_drawio_xml(comp_to_export, out_file, title="TestExport")
+    assert out_file.exists(), "Exported drawio file not created"
+    content = out_file.read_text(encoding="utf-8")
+    assert content.strip().startswith("<?xml"), "Exported file does not appear to be XML"
+
+def test_multiple_circuits_in_same_component_filename(tmp_path):
+    # create terminals such that two different circuit numbers end up in same connected component
+    # t1 in C1, terminal number "1"
+    t1 = TerminalInfo(
+        cabinet_name="C_AB", circuit_number="C1", terminal_block_desc="", terminal_block="BLK1",
+        terminal_number="1", side="L", internal_wiring=[], interconnect_terminal=[],
+        function_desc="", external_wiring="", cable_core_number="", cable_number="",
+        core_number="", cable_model="", opposite_device_number="", opposite_device_name="",
+        remarks="", col_wire_text="", cable_type=""
+    )
+    # t2 in C2, terminal number "2", interconnect to "1" (same block) so they join component
+    t2 = TerminalInfo(
+        cabinet_name="C_AB", circuit_number="C2", terminal_block_desc="", terminal_block="BLK1",
+        terminal_number="2", side="L", internal_wiring=[], interconnect_terminal=["1"],
+        function_desc="", external_wiring="", cable_core_number="", cable_number="",
+        core_number="", cable_model="", opposite_device_number="", opposite_device_name="",
+        remarks="", col_wire_text="", cable_type=""
+    )
+    # t3 another terminal physically separate but in same circuit C1 to strengthen connection
+    t3 = TerminalInfo(
+        cabinet_name="C_AB", circuit_number="C1", terminal_block_desc="", terminal_block="BLK1",
+        terminal_number="3", side="L", internal_wiring=[], interconnect_terminal=["2"],
+        function_desc="", external_wiring="", cable_core_number="", cable_number="",
+        core_number="", cable_model="", opposite_device_number="", opposite_device_name="",
+        remarks="", col_wire_text="", cable_type=""
+    )
+
+    g = ConnectionGraph()
+    g.build_from_terminals([t1, t2, t3])
+
+    # find component that contains circuit numbers C1 and C2
+    comps = g.get_all_components()
+    matching = None
+    for rep, comp in comps.items():
+        summary = g.summarize_component(comp)
+        circuits = set(summary.get("circuits", []))
+        if {"C1", "C2"}.issubset(circuits):
+            matching = comp
+            break
+
+    assert matching is not None, "Expected a component containing both C1 and C2"
+
+    fname = make_filename_for_component(matching, g, prefix="multi_circuit")
+    # filename should include both circuit codes
+    assert "C1" in fname and "C2" in fname
+    # also check that circuits order in filename is deterministic (sorted)
+    circuits_in_fname = fname.split("_")[-1].split(".")[0]  # something like "C1_C2"
+    assert "C1_C2" in circuits_in_fname or "C2_C1" in circuits_in_fname
 
