@@ -719,7 +719,7 @@ if (!removeHelpMenuFromMenubar()) {
 }
 
 window.addEventListener("load", () => {
-    window.ohtoai = window.ohtoai || {};
+    window.root_manager = window.root_manager || {};
 
     /**
      * @brief 等待editorUi初始化完成
@@ -744,19 +744,19 @@ window.addEventListener("load", () => {
         console.log("高亮管理器插件已加载");
         
         // 注册图表加载功能到全局对象
-        window.ohtoai.loadGraphXML = loadGraphXML;
+        window.root_manager.loadGraphXML = loadGraphXML;
         
         // 注册服务器文件加载功能到全局对象
-        window.ohtoai.loadServerFile = loadServerFile;
-        window.ohtoai.getServerFileFromHash = getServerFileFromHash;
+        window.root_manager.loadServerFile = loadServerFile;
+        window.root_manager.getServerFileFromHash = getServerFileFromHash;
         
         // 注册编辑控制功能到全局对象
-        window.ohtoai.enableEditing = enableEditing;
-        window.ohtoai.disableEditing = disableEditing;
-        window.ohtoai.isEditingEnabled = isEditingEnabled;
+        window.root_manager.enableEditing = enableEditing;
+        window.root_manager.disableEditing = disableEditing;
+        window.root_manager.isEditingEnabled = isEditingEnabled;
         
         // 注册服务器保存功能到全局对象
-        window.ohtoai.saveToServer = saveToServer;
+        window.root_manager.saveToServer = saveToServer;
         
         const editorUi = window.sb.editorUi;
         
@@ -909,8 +909,8 @@ window.addEventListener("load", () => {
         }
 
         // 添加服务器库加载API
-        window.ohtoai = window.ohtoai || {};
-        window.ohtoai.loadLibraryFromServer = function(libraryPath, successCallback, errorCallback) {
+        window.root_manager = window.root_manager || {};
+        window.root_manager.loadLibraryFromServer = function(libraryPath, successCallback, errorCallback) {
             const xhr = new XMLHttpRequest();
             xhr.open('GET', '/library/' + encodeURIComponent(libraryPath), true);
             xhr.onreadystatechange = function() {
@@ -975,48 +975,48 @@ window.addEventListener("load", () => {
             if (!hasFileParam) {
                 var url = "demo/BP-2B.drawio.xml"; // 默认图表文件
                 if (url) {
-                    window.ohtoai.loadGraphXML(url, false).then(() => {
+                    window.root_manager.loadGraphXML(url, false).then(() => {
                         console.log("图表已加载，正在初始化高亮管理器");
                         const graph = window.sb.editorUi.editor.graph;
-                        window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
+                        window.root_manager.stripedOverlayManager = new StripedOverlayManager(graph);
                         // 初始化告警单元格的条件高亮
-                        window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
+                        window.root_manager.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
                             if (!cell || !cell.value) return false;
                             if (typeof cell.value === "string") return false;
                             return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
                         }, ['#ff0000', '#ffff00']);
-                        window.ohtoai.stripedOverlayManager.refresh();
+                        window.root_manager.stripedOverlayManager.refresh();
                     }).catch(error => {
                         console.error("图表加载失败:", error);
                     });
                 }
             } else {
                 // 如果有服务器文件参数，先尝试加载服务器文件
-                var serverFilename = window.ohtoai.getServerFileFromHash();
+                var serverFilename = window.root_manager.getServerFileFromHash();
                 if (serverFilename) {
                     console.log("检测到服务器文件参数:", serverFilename, "正在加载...");
                     
                     // 等待editorUi准备就绪，然后加载服务器文件
                     var loadServerFileWhenReady = function() {
                         if (window.sb && window.sb.editorUi && window.sb.editorUi.editor) {
-                            window.ohtoai.loadServerFile(serverFilename).then(() => {
+                            window.root_manager.loadServerFile(serverFilename).then(() => {
                                 console.log("服务器文件已加载，正在初始化高亮管理器");
                                 const graph = window.sb.editorUi.editor.graph;
-                                window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
+                                window.root_manager.stripedOverlayManager = new StripedOverlayManager(graph);
                                 // 初始化告警单元格的条件高亮
-                                window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
+                                window.root_manager.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
                                     if (!cell || !cell.value) return false;
                                     if (typeof cell.value === "string") return false;
                                     return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
                                 }, ['#ff0000', '#ffff00']);
-                                window.ohtoai.stripedOverlayManager.refresh();
+                                window.root_manager.stripedOverlayManager.refresh();
                             }).catch(error => {
                                 console.error("服务器文件加载失败:", error);
                                 // 加载失败时初始化基础高亮管理器
                                 if (window.sb && window.sb.editorUi && window.sb.editorUi.editor && window.sb.editorUi.editor.graph) {
                                     const graph = window.sb.editorUi.editor.graph;
-                                    window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
-                                    window.ohtoai.stripedOverlayManager.refresh();
+                                    window.root_manager.stripedOverlayManager = new StripedOverlayManager(graph);
+                                    window.root_manager.stripedOverlayManager.refresh();
                                 }
                             });
                         } else {
@@ -1034,14 +1034,14 @@ window.addEventListener("load", () => {
                             const currentFile = window.sb.editorUi.getCurrentFile();
                             if (currentFile) {
                                 console.log("文件已加载，正在初始化高亮管理器");
-                                window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
+                                window.root_manager.stripedOverlayManager = new StripedOverlayManager(graph);
                                 // 初始化告警单元格的条件高亮
-                                window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
+                                window.root_manager.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
                                     if (!cell || !cell.value) return false;
                                     if (typeof cell.value === "string") return false;
                                     return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
                                 }, ['#ff0000', '#ffff00']);
-                                window.ohtoai.stripedOverlayManager.refresh();
+                                window.root_manager.stripedOverlayManager.refresh();
                                 clearInterval(checkInterval);
                             }
                         }
@@ -1053,13 +1053,13 @@ window.addEventListener("load", () => {
                         console.log("等待文件加载超时，初始化基础高亮管理器");
                         if (window.sb && window.sb.editorUi && window.sb.editorUi.editor && window.sb.editorUi.editor.graph) {
                             const graph = window.sb.editorUi.editor.graph;
-                            window.ohtoai.stripedOverlayManager = new StripedOverlayManager(graph);
-                            window.ohtoai.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
+                            window.root_manager.stripedOverlayManager = new StripedOverlayManager(graph);
+                            window.root_manager.stripedOverlayManager.addConditionalHighlight('alarm_cells', cell => {
                                 if (!cell || !cell.value) return false;
                                 if (typeof cell.value === "string") return false;
                                 return cell.value.getAttribute && cell.value.getAttribute('alarm') === '1';
                             }, ['#ff0000', '#ffff00']);
-                            window.ohtoai.stripedOverlayManager.refresh();
+                            window.root_manager.stripedOverlayManager.refresh();
                         }
                     }, 10000);
                 }
