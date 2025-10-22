@@ -219,9 +219,10 @@ class ConnectionGraph:
       - 导出时会把端子按机柜/端子排分组，端子排内按表格布局排列，端子之间的连线会被绘制并在必要时显示回路号。
     """
     CIRCUIT_PREFIX = "@CIRCUIT:"
-
+    INTERNAL_PREFIX = "@INTERNAL:"
+    
     def __init__(self):
-        # 邻接表：键为节点（tuple 或 circuit string），值为相邻节点集合
+        # 邻接表：键为节点（tuple 或 circuit/internal string），值为相邻节点集合
         self.adj: Dict[Any, Set[Any]] = defaultdict(set)
         # 记录所有终端节点对应的 TerminalInfo，键为三元组 (cabinet, block, terminal)
         self.terminal_info_map: Dict[tuple, TerminalInfo] = {}
@@ -243,6 +244,12 @@ class ConnectionGraph:
     def make_circuit_node(circuit: str) -> str:
         circuit = (circuit or "").strip()
         return f"{ConnectionGraph.CIRCUIT_PREFIX}{circuit}"
+
+    @staticmethod
+    def make_internal_node(name: str) -> str:
+        """把 internal wiring 名称包装为图中使用的字符串节点"""
+        n = (name or "").strip()
+        return f"{ConnectionGraph.INTERNAL_PREFIX}{n}"
 
     def _record_edge(self, a: Any, b: Any):
         """内部：记录无向边为 frozenset，以保证唯一性"""
@@ -301,6 +308,14 @@ class ConnectionGraph:
             parsed = self._parse_interconnect(inter, terminal.cabinet_name, terminal.terminal_block)
             if parsed:
                 self.add_edge(node, parsed)
+
+        # 处理 internal_wiring：把每个 internal 名称当作全局字符串节点加入（比如 "1DK" 或 "3DK:1"）
+        # 并与当前端子建立边。这样同一 internal 名称连接的多个端子会被视为连通。
+        for internal in terminal.internal_wiring:
+            if not internal:
+                continue
+            inode = self.make_internal_node(internal)
+            self.add_edge(node, inode)
 
         return node
 
@@ -418,6 +433,8 @@ class ConnectionGraph:
         """把组件转成可序列化的摘要结构，包含节点和边信息（用于拓扑绘制）"""
         terminals = [n for n in comp if isinstance(n, tuple)]
         circuits = [n[len(self.CIRCUIT_PREFIX):] for n in comp if isinstance(n, str) and n.startswith(self.CIRCUIT_PREFIX)]
+        # internal wiring 名称（去掉前缀）
+        internals = [n[len(self.INTERNAL_PREFIX):] for n in comp if isinstance(n, str) and n.startswith(self.INTERNAL_PREFIX)]
         edges = self.get_component_edges(comp)
         adj = self.get_component_subgraph_adj(comp)
         # 附带每个终端的 TerminalInfo（若存在）
@@ -425,6 +442,7 @@ class ConnectionGraph:
         return {
             "terminals": sorted([self.make_terminal_id_str(n) for n in terminals]),
             "circuits": sorted(circuits),
+            "internals": sorted(internals),
             "size": len(comp),
             "edges": edges,
             "adj": adj,
@@ -666,7 +684,9 @@ class ConnectionGraph:
         回路号处理：
           - 若某回路号关联多个端子（>2），则在这些端子之间绘制成完全连通（每对一条线），
             且在连线上标注回路号（回路号作为边的 label）。
-          - 同时保留由互联字段生成的直接边（若存在），标签为空或来源于共同回路号。
+          - internal_wiring 也会按名称在该名称关联的端子间生成完全连通（标签为 internal 名称），
+            但不会覆盖已有的回路标签（回路标签优先）。
+          - 同时保留由互联字段生成的直接边（若存在），标签为空或来源于共同回路号 / internal 名称。
         支持输出为 .drawio (mxfile XML) ，diagrams.net 可直接打开）。
         """
         if not comp:
@@ -747,6 +767,29 @@ class ConnectionGraph:
                     key = tuple(sorted([a,b], key=self._node_sort_key))
                     # 回路号优先覆盖
                     edges_to_draw[key] = circ
+
+        # 3) internal_wiring 作为全局名称：若多个端子引用相同 internal 名称，则在这些端子间生成完全连通
+        internals = defaultdict(list)
+        for node in terminals:
+            info = self.terminal_info_map.get(node)
+            if not info:
+                continue
+            for internal in info.internal_wiring:
+                if internal:
+                    internals[internal].append(node)
+
+        for internal_name, nodes in internals.items():
+            if len(nodes) < 2:
+                continue
+            nodes_sorted = sorted(nodes, key=self._node_sort_key)
+            for i in range(len(nodes_sorted)):
+                for j in range(i+1, len(nodes_sorted)):
+                    a = nodes_sorted[i]
+                    b = nodes_sorted[j]
+                    key = tuple(sorted([a,b], key=self._node_sort_key))
+                    # internal 标签仅在当前无回路标签的情况下写入，避免覆盖回路号
+                    if key not in edges_to_draw or not edges_to_draw[key]:
+                        edges_to_draw[key] = internal_name
 
         # 最终将 edges_to_draw 写入 cells（无向线）
         for (a, b), label in edges_to_draw.items():
