@@ -1932,3 +1932,69 @@ def test_multiple_circuits_in_same_component_filename(tmp_path):
     circuits_in_fname = fname.split("_")[-1].split(".")[0]  # something like "C1_C2"
     assert "C1_C2" in circuits_in_fname or "C2_C1" in circuits_in_fname
 
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
+def create_example_system() -> CabinetSystem:
+    """
+    创建一个示例机柜系统用于测试和演示
+    
+    Returns:
+        CabinetSystem: 包含两个机柜的示例系统
+    """
+    system = CabinetSystem()
+    
+    # 机柜1：控制柜
+    cabinet1 = Cabinet(number="CAB001", description="主控制柜")
+    
+    # 端子排1：电源端子排
+    tb_power = TerminalBlock(name="TB_POWER", description="电源端子排")
+    tb_power.add_terminal(Terminal(name="L1", circuit_number="PWR_L1", cable_number="CABLE_001"))
+    tb_power.add_terminal(Terminal(name="L2", circuit_number="PWR_L2", cable_number="CABLE_001"))
+    tb_power.add_terminal(Terminal(name="L3", circuit_number="PWR_L3", cable_number="CABLE_001"))
+    tb_power.add_terminal(Terminal(name="N", circuit_number="PWR_N", cable_number="CABLE_001"))
+    cabinet1.add_terminal_block(tb_power)
+    
+    # 装置1：PLC模块
+    plc = Device(name="PLC_001", description="PLC模块")
+    for i in range(8):
+        plc.add_terminal(DeviceTerminal(name=f"DI{i+1}", row=i//4, col=i%4))
+    cabinet1.add_device(plc)
+    
+    # 元件1：主电源开关
+    main_switch = Component(
+        name="QF1",
+        component_type=ComponentType.SWITCH,
+        description="主电源断路器"
+    )
+    main_switch.add_terminal(ComponentTerminal(name="1", position=0))
+    main_switch.add_terminal(ComponentTerminal(name="2", position=1))
+    main_switch.add_internal_connection("1", "2")
+    cabinet1.add_component(main_switch)
+    
+    system.add_cabinet(cabinet1)
+    
+    # 机柜2：I/O扩展柜
+    cabinet2 = Cabinet(number="CAB002", description="I/O扩展柜")
+    
+    # 端子排2：I/O端子排
+    tb_io = TerminalBlock(name="TB_IO", description="I/O端子排")
+    for i in range(1, 11):
+        tb_io.add_terminal(Terminal(name=f"IO{i}"))
+    cabinet2.add_terminal_block(tb_io)
+    
+    system.add_cabinet(cabinet2)
+    
+    # 添加连接
+    connection1 = Connection(
+        from_ref="CAB001/TB_POWER:L1",
+        to_ref="CAB001/QF1:1",
+        connection_type=ConnectionType.INTERNAL_WIRE,
+        description="电源线"
+    )
+    system.add_connection(connection1)
+    
+    return system
+
