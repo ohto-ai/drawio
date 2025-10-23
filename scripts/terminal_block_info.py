@@ -1075,6 +1075,49 @@ class ConnectionGraph:
         for t in terminals:
             self.add_terminal(t)
 
+    
+    def export_system_to_drawio(self, output_dir: Path, separate_by_cabinet: bool = True):
+        """
+        从CabinetSystem导出drawio文件
+        
+        Args:
+            output_dir: 输出目录
+            separate_by_cabinet: 是否为每个机柜生成单独的文件
+        """
+        if not self.cabinet_system:
+            raise ValueError("未设置CabinetSystem，请先调用build_from_cabinet_system")
+        
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        if separate_by_cabinet:
+            # 为每个机柜生成单独的图纸
+            for cabinet in self.cabinet_system.cabinets.values():
+                # 找到包含该机柜端子的所有组件
+                comps = self.get_components_by_cabinet(cabinet.number)
+                
+                for rep, comp in comps.items():
+                    # 生成文件名
+                    safe_rep = rep.replace("/", "_").replace(":", "_")
+                    safe_cabinet = cabinet.number.replace("/", "_")
+                    filename = output_dir / f"cabinet_{safe_cabinet}_{safe_rep}.drawio"
+                    
+                    try:
+                        self.export_drawio_xml(comp, filename, title=f"{cabinet.number} - {rep}")
+                        print(f"已导出: {filename}")
+                    except Exception as e:
+                        print(f"导出失败 {filename}: {e}")
+        else:
+            # 导出所有组件到单独的文件
+            comps = self.get_all_components()
+            for rep, comp in comps.items():
+                filename = output_dir / make_filename_for_component(comp, self)
+                try:
+                    self.export_drawio_xml(comp, filename, title=rep)
+                    print(f"已导出: {filename}")
+                except Exception as e:
+                    print(f"导出失败 {filename}: {e}")
+
     def bfs_component(self, start: Any) -> Set[Any]:
         if start not in self.adj:
             return set()
