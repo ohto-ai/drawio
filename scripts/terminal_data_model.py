@@ -17,6 +17,8 @@ class Cabinet:
     description: str = ""
     panel_terminal_blocks: List['TerminalBlock'] = field(default_factory=list)
     backend_connections: List['BackendConnection'] = field(default_factory=list)
+    # device group 布局： device_group_id -> List[List[terminal_name]]（按行的二维列表）
+    device_groups_layout: Dict[str, List[List[str]]] = field(default_factory=dict)
 
 
 class TerminalType(Enum):
@@ -388,6 +390,8 @@ class TerminalDataModel:
                 self._process_front_panel_dataframe(df, description=f"{file_path} - {sheet_name}")
             elif "互联起点" in df.columns and "互联终点" in df.columns:
                 self._process_backend_connections_dataframe(df, description=f"{file_path} - {sheet_name}")
+            elif "布局端子" in df.columns and "装置组编号" in df.columns:
+                self._process_backend_devices_layout_dataframe(df, description=f"{file_path} - {sheet_name}")
 
     def safe_str(value) -> str:
         """安全转换为字符串并去除空格"""
@@ -561,6 +565,8 @@ class TerminalDataModel:
                             terminal_type=TerminalType.BACKEND_DEVICE
                         )
                 else:
+                    # 自己单独一组
+                    # 如果小写abcn结尾
                     if terminal_str.endswith(('a', 'b', 'c', 'n')):
                         ic_device_group_id = terminal_str[:-1]
                     else:
@@ -580,6 +586,43 @@ class TerminalDataModel:
                 to_terminal=to_terminal_ref
             )
             cabinet.backend_connections.append(backend_connection)
+
+
+    def _process_backend_devices_layout_dataframe(self, df: pd.DataFrame, description: str =""):
+        """
+        处理柜内装置布局图, 描述柜内端子所在的组以及每组内的行/列布局。
+        表格列：设备编号  装置编号  装置组编号  布局端子
+        每行代表该装置组的一行布局，布局端子内以 ';' 或 ',' 等分隔同一行内的端子。
+        例如两行:
+          61LH   61LH   61LHa;61LHb
+          61LH   61LH   61LHc;61LHn
+            设备编号	装置编号	装置组编号	布局端子
+            1ABA03GG003	61LH	61LH	61LHa;61LHb
+            1ABA03GG003	61LH	61LH	61LHc;61LHn
+            1ABA01GG003	42LH	42LH1	42LHa
+            1ABA01GG003	42LH	42LH1	42LHb
+            1ABA01GG003	42LH	42LH2	42LHc
+            1ABA01GG003	42LH	42LH2	42LHn
+        表示 device_group_id=61LH 的一组包含 4 个端子，排布为 2 列、2 行（按读到的行顺序）。
+        本函数会：
+         - 把每个 cabinet 的 device_groups_layout 填充为二维行列表
+         - 尝试在当前 cabinet 中查找与每个端子名匹配的 TerminalRef 实例，设置其 device_group_id
+        """
+        for index, row in df.iterrows():
+            cabinet_id = TerminalDataModel.safe_str(row.get("设备编号", ""))
+            if not cabinet_id:
+                logger.warning(f"{description}:{index}: 未找到设备编号，跳过。")
+                continue
+            cabinet = next((c for c in self.cabinets if c.id == cabinet_id), None)
+            if not cabinet:
+                # 如果尚未创建 cabinet，则创建以便保存布局信息
+                cabinet = Cabinet(id=cabinet_id)
+                self.cabinets.append(cabinet)
+
+            device_id = TerminalDataModel.safe_str(row.get("装置编号", ""))
+            device_group_id = TerminalDataModel.safe_str(row.get("装置组编号", "")) or device_id
+            layout_terminals_raw = TerminalDataModel.safe_str(row.get("布局端子", ""))
+                
 
     def debug_print(self):
         for cabinet in self.cabinets:
@@ -732,6 +775,9 @@ class TerminalDataModel:
             fname_base = re.sub(r'[\\/:*?"<>|\s]+', '_', title)
             if not fname_base:
                 fname_base = f"group_{i}"
+            # 避免名称过长
+            if len(fname_base) > 100:
+                fname_base = fname_base[:100]
             fp = os.path.join(out_folder, f"{fname_base}.drawio")
 
             g.to_drawio_xml(fp, title=title)
