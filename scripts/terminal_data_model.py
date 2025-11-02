@@ -53,6 +53,7 @@ class TerminalRef:
 class TerminalInfo:
     terminal_ref: TerminalRef
     description: str = ""
+    order_in_terminal_block: int = None
     direct_connect_terminal_refs: List[TerminalRef] = None                      # 直连端子名称，如: 1
     internal_connection_terminal_refs: List[TerminalRef] = field(default_factory=list)  # 机柜内连接端子名称，如: 4DK1:4 3D21
     external_connection_wire: Optional['GlobalWireRef'] = None       # <电缆编号>/<回路号>， 如: 1ABA01GG33122/A4431
@@ -74,6 +75,12 @@ class GlobalWireRef:
     """
     cable_id: Optional[str]
     loop_number: str    # 回路号
+    def __str__(self):
+        # 使用可识别的前缀以便在 to_drawio_xml 中特殊处理
+        # 格式: GLOBAL_WIRE:<cable_id or "">:<loop_number>
+        return f"GLOBAL_WIRE:{self.cable_id or ''}:{self.loop_number}"
+    def __repr__(self):
+        return self.__str__()
 
 @dataclass
 class ConnectionGraph:
@@ -85,6 +92,10 @@ class ConnectionGraph:
     edges: Dict[frozenset, Set[str]] = field(default_factory=dict)
     repr_map: Dict[frozenset, Tuple[str, str]] = field(default_factory=dict)
     nodes: Set[str] = field(default_factory=set)
+    # virtual groups: 每项为一组逻辑上视为连通但不绘制具体边的节点集合（用于连通性计算）
+    virtual_groups: List[Set[str]] = field(default_factory=list)
+    # node_order: 保留每个端子的 order_in_terminal_block 值（用于按原顺序绘制）
+    node_order: Dict[str, int] = field(default_factory=dict)
 
     def add_edge(self, a, b, reason: str):
         a_str = str(a)
@@ -99,6 +110,10 @@ class ConnectionGraph:
         self.edges[key].add(reason)
         self.nodes.add(a_str)
         self.nodes.add(b_str)
+    def set_node_order(self, node_str: str, order: Optional[int]):
+        if order is None:
+            return
+        self.node_order[node_str] = int(order)
 
     def get_edges(self):
         """返回边列表：每条边为 dict{a, b, reasons}"""
@@ -124,6 +139,14 @@ class ConnectionGraph:
         for key in self.edges.keys():
             a, b = self.repr_map[key]
             union(a, b)
+        # 把 virtual_groups 中的节点视作连通（用于查询/拆分），但不在 edges 中绘制具体边
+        for group in self.virtual_groups:
+            members = list(group)
+            if not members:
+                continue
+            first = members[0]
+            for other in members[1:]:
+                union(first, other)
         groups: Dict[str, List[str]] = {}
         for node in self.nodes:
             r = find(node)
@@ -163,6 +186,11 @@ class ConnectionGraph:
         布局规则同前：按 PANEL/DEVICE_GROUP/COMPONENT 分组；组内按行排列；组之间按列排列。
         """
         def node_group_key(node_str: str):
+            # 特殊处理全局线束，不放入任何组内
+            if node_str.startswith("GLOBAL_WIRE:"):
+                m = re.match(r"GLOBAL_WIRE:([^:]*):(.*)", node_str)
+                if m:
+                    return ("GLOBAL_WIRE", m.group(1), m.group(2))
             if "/@PANEL:" in node_str:
                 m = re.match(r"([^/]+)/@PANEL:([^:]+):(.+)", node_str)
                 if m:
@@ -181,7 +209,12 @@ class ConnectionGraph:
             return ("UNGROUPED", "", "")
 
         groups: Dict[Tuple[str,str,str], List[str]] = {}
+        wire_nodes: List[str] = []
         for node in self.nodes:
+            if node.startswith("GLOBAL_WIRE:"):
+                # 收集全局线，不放入 groups 中
+                wire_nodes.append(node)
+                continue
             key = node_group_key(node)
             groups.setdefault(key, []).append(node)
 
@@ -217,24 +250,75 @@ class ConnectionGraph:
             gid = gen_id()
             group_cell_ids[gkey] = gid
             g_label = f"{gkey[0]}:{gkey[2] or gkey[1]}"
-            # group cell
-            group_cell = ET.SubElement(root, "mxCell", id=gid, value=escape(g_label),
-                                       style="rounded=1;strokeColor=#444444;fillColor=#f5f5f5;", vertex="1", parent="1")
-            group_padding = 12
+            # group cell （不直接在这里放文本，文本作为单独子 cell 放在容器顶部）
+            group_style = "rounded=1;strokeColor=#444444;fillColor=#f5f5f5;"
+            group_cell = ET.SubElement(root, "mxCell", id=gid, value="", style=group_style, vertex="1", parent="1")
+
+            # layout: 为标签和节点留出空间
+            top_padding = 8
+            label_height = 18
+            between_label_and_nodes = 6
+            bottom_padding = 8
             col_node_count = len(nodes)
-            group_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap) + group_padding*2
+            inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
+            group_height = top_padding + label_height + between_label_and_nodes + inner_nodes_height + bottom_padding
             ET.SubElement(group_cell, "mxGeometry", attrib={"x": str(x_col), "y": str(group_y_top), "width": str(group_width), "height": str(group_height), "as": "geometry"})
 
-            # place nodes inside group
-            for ni, nstr in enumerate(sorted(nodes)):
-                nx = x_col + group_padding
-                ny = group_y_top + group_padding + ni * (node_height + node_gap)
+            # label cell：放在容器内顶部，明显可见，不会被节点遮挡
+            label_id = gen_id()
+            label_style = "text;html=1;align=left;verticalAlign=top;strokeColor=none;fillColor=none;fontStyle=1"
+            label_cell = ET.SubElement(root, "mxCell", id=label_id, value=escape(g_label), style=label_style, vertex="1", parent=gid)
+            ET.SubElement(label_cell, "mxGeometry", attrib={
+                "x": str(12),
+                "y": str(top_padding),
+                "width": str(group_width - 24),
+                "height": str(label_height),
+                "as": "geometry"
+            })
+
+            # place nodes inside group（从标签下方开始）
+            # 按 node_order 优先排序；若不存在 order，则尝试把标签解析为整数做数值排序，最后按字符串排序
+            def sort_key(nstr):
+                # 优先使用显式记录的 order_in_terminal_block
+                if nstr in self.node_order:
+                    return (0, self.node_order[nstr], 0, "")
+                label = nstr.split(":")[-1]
+                try:
+                    num = int(label)
+                    return (1, num, 0, "")
+                except Exception:
+                    return (2, 0, 0, label)
+
+            ordered_nodes = sorted(nodes, key=sort_key)
+            for ni, nstr in enumerate(ordered_nodes):
+                nx = x_col + 12
+                ny = group_y_top + top_padding + label_height + between_label_and_nodes + ni * (node_height + node_gap)
                 nid = gen_id()
                 node_cell_ids[nstr] = nid
                 label = nstr.split(":")[-1]
                 node_style = "shape=rectangle;rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
                 node_cell = ET.SubElement(root, "mxCell", id=nid, value=escape(label), style=node_style, vertex="1", parent=gid)
                 ET.SubElement(node_cell, "mxGeometry", attrib={"x": str(nx - x_col), "y": str(ny - group_y_top), "width": str(node_width), "height": str(node_height), "as": "geometry"})
+
+        # 为每个 GLOBAL_WIRE 创建一个单独的中转节点（不放入任何容器）
+        wire_base_x = group_x + max(1, len(sorted_groups)) * (group_width + group_gap) + 40
+        wire_index = 0
+        for w in sorted(wire_nodes):
+            # 解析显示标签
+            m = re.match(r"GLOBAL_WIRE:([^:]*):(.*)", w)
+            if m:
+                cable = m.group(1) or ""
+                loop = m.group(2) or ""
+                label = f"{cable}/{loop}" if cable else loop
+            else:
+                label = w
+            nid = gen_id()
+            node_cell_ids[w] = nid
+            wire_index += 1
+            v = ET.SubElement(root, "mxCell", id=nid, value=escape(label),
+                              style="shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#A67C00",
+                              parent="1", vertex="1")
+            ET.SubElement(v, "mxGeometry", attrib={"x": str(wire_base_x), "y": str(group_y_top + (wire_index - 1) * (node_height + node_gap)), "width": str(node_width // 2), "height": str(node_height), "as": "geometry"})
 
         # create standalone nodes for any endpoints missing from node_cell_ids (e.g. wires)
         # and create edge cells
@@ -374,6 +458,8 @@ class TerminalDataModel:
                 logger.warning(f"{description}:{index}: 警告: 端子引用重复: {terminal_ref}, 已存在的端子信息将被更新。")
             else:
                 terminal_info = TerminalInfo(terminal_ref=terminal_ref)
+                # update order
+                terminal_info.order_in_terminal_block = len(terminal_block.terminal_infos)
                 terminal_block.terminal_infos[terminal_ref] = terminal_info
 
             terminal_info.description = TerminalDataModel.safe_str(row.get("功能说明", ""))
@@ -389,7 +475,7 @@ class TerminalDataModel:
                 ) for dc in direct_connects
             ]
             terminal_info.direct_connect_terminal_refs = direct_connects_refs
-            
+
             internal_connection = TerminalDataModel.split_to_list(TerminalDataModel.safe_str(row.get("内部配线", "")))
             internal_connection_terminal_refs = []
             for ic in internal_connection:
@@ -502,6 +588,7 @@ class TerminalDataModel:
                 print(f"  Terminal Block ID: {terminal_block.id}, Description: {terminal_block.description}")
                 for terminal_ref, terminal_info in terminal_block.terminal_infos.items():
                     print(f"    Terminal Ref: {terminal_ref}")
+                    print(f"      Order: {terminal_info.order_in_terminal_block}")
                     print(f"      Description: {terminal_info.description}")
                     print(f"      Direct Connects: {[str(dc) for dc in terminal_info.direct_connect_terminal_refs]}")
                     print(f"      Internal Connections: {[str(ic) for ic in terminal_info.internal_connection_terminal_refs]}")
@@ -537,6 +624,9 @@ class TerminalDataModel:
             # 1-3: 遍历面板端子及其TerminalInfo
             for tb in cabinet.panel_terminal_blocks:
                 for terminal_ref, terminal_info in tb.terminal_infos.items():
+                    # 保留端子原始顺序信息，供绘图时使用
+                    graph.nodes.add(str(terminal_ref))
+                    graph.set_node_order(str(terminal_ref), terminal_info.order_in_terminal_block)
                     if terminal_info.direct_connect_terminal_refs:
                         for dc in terminal_info.direct_connect_terminal_refs:
                             graph.add_edge(terminal_ref, dc, "direct_connect")
@@ -574,18 +664,24 @@ class TerminalDataModel:
                 collect_terminal(bc.to_terminal)
 
         for group_key, items in terminals_by_component.items():
-            if len(items) <= 1:
+            # 不自动绘制组内连线；记录 virtual group 用于连通性判断（查询时 a 可到达组内其他节点）
+            if not items:
                 continue
-            rep = items[0]
-            for other in items[1:]:
-                graph.add_edge(rep, other, f"same_component:{group_key[1]}")
+            members = {str(t) for t in items}
+            # 保证组内节点至少存在于 graph.nodes 中（即使没有实际边，也能被拆分到同一个子图）
+            for m in members:
+                graph.nodes.add(m)
+            graph.virtual_groups.append(members)
 
         for group_key, items in terminals_by_device_group.items():
-            if len(items) <= 1:
+            # device_group 同样不自动绘制组内连线，只记录为 virtual group 以保证连通性查询
+            if not items:
                 continue
-            rep = items[0]
-            for other in items[1:]:
-                graph.add_edge(rep, other, f"same_device_group:{group_key[1]}")
+            members = {str(t) for t in items}
+            for m in members:
+                graph.nodes.add(m)
+            graph.virtual_groups.append(members)
+
 
         return graph
 
@@ -664,4 +760,4 @@ if __name__ == "__main__":
         for e in g.get_edges():
             print(e)
 
-    model.export_drawio_groups(r"C:\Users\OhtoAi\Downloads\小测试\output_graphs")
+    model.export_drawio_groups(r"output_graphs")
