@@ -295,12 +295,31 @@ class ConnectionGraph:
             for ni, nstr in enumerate(ordered_nodes):
                 nx = x_col + 12
                 ny = group_y_top + top_padding + label_height + between_label_and_nodes + ni * (node_height + node_gap)
-                nid = gen_id()
-                node_cell_ids[nstr] = nid
+                # 使用圆形节点 + 旁边的文本标签
                 label = nstr.split(":")[-1]
-                node_style = "shape=rectangle;rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
-                node_cell = ET.SubElement(root, "mxCell", id=nid, value=escape(label), style=node_style, vertex="1", parent=gid)
-                ET.SubElement(node_cell, "mxGeometry", attrib={"x": str(nx - x_col), "y": str(ny - group_y_top), "width": str(node_width), "height": str(node_height), "as": "geometry"})
+                circle_id = gen_id()
+                node_cell_ids[nstr] = circle_id  # 边连接指向圆形节点 id
+                circle_style = "shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
+                circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="", style=circle_style, vertex="1", parent=gid)
+                # 圆的大小使用 node_height（保证为正方形以形成圆）
+                ET.SubElement(circle_cell, "mxGeometry", attrib={
+                    "x": str(nx - x_col),
+                    "y": str(ny - group_y_top),
+                    "width": str(node_height),
+                    "height": str(node_height),
+                    "as": "geometry"
+                })
+                # 文本标签放在圆的右侧
+                text_id = gen_id()
+                text_style = "text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none"
+                text_cell = ET.SubElement(root, "mxCell", id=text_id, value=escape(label), style=text_style, vertex="1", parent=gid)
+                ET.SubElement(text_cell, "mxGeometry", attrib={
+                    "x": str((nx - x_col) + node_height + 6),
+                    "y": str(ny - group_y_top),
+                    "width": str(max(10, node_width - node_height - 12)),
+                    "height": str(node_height),
+                    "as": "geometry"
+                })
 
         # 为每个 GLOBAL_WIRE 创建一个单独的中转节点（不放入任何容器）
         wire_base_x = group_x + max(1, len(sorted_groups)) * (group_width + group_gap) + 40
@@ -330,21 +349,37 @@ class ConnectionGraph:
         for key, reasons in self.edges.items():
             a_str, b_str = self.repr_map[key]
             if a_str not in node_cell_ids:
-                nid = gen_id()
-                node_cell_ids[a_str] = nid
+                # 使用圆形表示端子，文本放在右侧
+                circle_id = gen_id()
+                node_cell_ids[a_str] = circle_id
                 standalone_index += 1
-                v = ET.SubElement(root, "mxCell", id=nid, value=escape(a_str),
-                                  style="shape=rectangle;rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000",
-                                  parent="1", vertex="1")
-                ET.SubElement(v, "mxGeometry", attrib={"x": str(40), "y": str(40 + standalone_index * (node_height + node_gap)), "width": str(node_width), "height": str(node_height), "as": "geometry"})
+                cx = 40
+                cy = 40 + standalone_index * (node_height + node_gap)
+                circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="",
+                                            style="shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000",
+                                            parent="1", vertex="1")
+                ET.SubElement(circle_cell, "mxGeometry", attrib={"x": str(cx), "y": str(cy), "width": str(node_height), "height": str(node_height), "as": "geometry"})
+                text_id = gen_id()
+                text_cell = ET.SubElement(root, "mxCell", id=text_id, value=escape(a_str),
+                                          style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none",
+                                          parent="1", vertex="1")
+                ET.SubElement(text_cell, "mxGeometry", attrib={"x": str(cx + node_height + 6), "y": str(cy), "width": str(max(10, node_width - node_height - 12)), "height": str(node_height), "as": "geometry"})
+
             if b_str not in node_cell_ids:
-                nid = gen_id()
-                node_cell_ids[b_str] = nid
+                circle_id = gen_id()
+                node_cell_ids[b_str] = circle_id
                 standalone_index += 1
-                v = ET.SubElement(root, "mxCell", id=nid, value=escape(b_str),
-                                  style="shape=rectangle;rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000",
-                                  parent="1", vertex="1")
-                ET.SubElement(v, "mxGeometry", attrib={"x": str(160), "y": str(40 + standalone_index * (node_height + node_gap)), "width": str(node_width), "height": str(node_height), "as": "geometry"})
+                cx = 160
+                cy = 40 + standalone_index * (node_height + node_gap)
+                circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="",
+                                            style="shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000",
+                                            parent="1", vertex="1")
+                ET.SubElement(circle_cell, "mxGeometry", attrib={"x": str(cx), "y": str(cy), "width": str(node_height), "height": str(node_height), "as": "geometry"})
+                text_id = gen_id()
+                text_cell = ET.SubElement(root, "mxCell", id=text_id, value=escape(b_str),
+                                          style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none",
+                                          parent="1", vertex="1")
+                ET.SubElement(text_cell, "mxGeometry", attrib={"x": str(cx + node_height + 6), "y": str(cy), "width": str(max(10, node_width - node_height - 12)), "height": str(node_height), "as": "geometry"})
 
             edge_id = gen_id()
             reason_label = ""  # 保持连线上不显示长文本，避免遮挡；如需显示可改为 ",".join(sorted(reasons))
