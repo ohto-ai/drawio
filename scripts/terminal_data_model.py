@@ -19,12 +19,18 @@ class Cabinet:
     backend_connections: List['BackendConnection'] = field(default_factory=list)
     # device group 布局： device_group_id -> List[List[terminal_name]]（按行的二维列表）
     device_groups_layout: Dict[str, List[List[str]]] = field(default_factory=dict)
+    backend_components: Dict[str, 'BackendComponentInfo'] = field(default_factory=dict)
 
 
 class TerminalType(Enum):
     FRONT_PANEL = "front_panel"
     BACKEND_DEVICE = "backend_device"
     BACKEND_COMPONENT = "backend_component"
+
+class BackendComponentInfo:
+    component_id: str
+    component_type: str
+    terminal_refs: List['TerminalRef']
 
 @dataclass
 class TerminalRef:
@@ -181,7 +187,8 @@ class ConnectionGraph:
 
     def to_drawio_xml(self, file_path: str, title: Optional[str] = None,
                       group_gap: int = 80, group_width: int = 240,
-                      node_width: int = 180, node_height: int = 36, node_gap: int = 8):
+                      node_width: int = 180, node_height: int = 36, node_gap: int = 8,
+                      component_types: Optional[Dict[Tuple[str, str], str]] = None):
         """
         将当前 ConnectionGraph 导出为 draw.io (.drawio 即 xml) 文件。
         输出结构与示例保持一致：<mxfile><diagram><mxGraphModel>...</mxGraphModel></diagram></mxfile>
@@ -297,7 +304,14 @@ class ConnectionGraph:
             if gkey[0] == "COMPONENT":
                 # 在组内放一个代表组件的块（宽度留内边距），高度使用组内节点高度（inner_nodes_height）
                 comp_block_id = gen_id()
-                comp_label = gkey[2] or "COMPONENT"
+                # 尝试用提供的 component_types 映射显示元件类型；否则回退为 component_id
+                comp_cabinet = gkey[1]
+                comp_id = gkey[2] or ""
+                comp_label = None
+                if component_types:
+                    comp_label = component_types.get((comp_cabinet, comp_id))
+                if not comp_label:
+                    comp_label = comp_id or "COMPONENT"
                 comp_style = "shape=rectangle;rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E8F0FE;strokeColor=#1A73E8"
                 comp_cell = ET.SubElement(root, "mxCell", id=comp_block_id, value=escape(comp_label), style=comp_style, vertex="1", parent=gid)
                 comp_x = x_col + 12
@@ -454,6 +468,8 @@ class TerminalDataModel:
                 self._process_backend_connections_dataframe(df, description=f"{file_path} - {sheet_name}")
             elif "布局端子" in df.columns and "装置组编号" in df.columns:
                 self._process_backend_devices_layout_dataframe(df, description=f"{file_path} - {sheet_name}")
+            elif "元件编号" in df.columns and "元件类型" in df.columns:
+                self._process_backend_components_dataframe(df, description=f"{file_path} - {sheet_name}")
 
     def safe_str(value) -> str:
         """安全转换为字符串并去除空格"""
@@ -684,7 +700,50 @@ class TerminalDataModel:
             device_id = TerminalDataModel.safe_str(row.get("装置编号", ""))
             device_group_id = TerminalDataModel.safe_str(row.get("装置组编号", "")) or device_id
             layout_terminals_raw = TerminalDataModel.safe_str(row.get("布局端子", ""))
-                
+
+    def _process_backend_components_dataframe(self, df: pd.DataFrame, description: str =""):
+        """
+            设备编号	元件编号	元件类型	元件端子
+            1ABA03GG003	1DK	刀开关	1DK:2;1DK:1
+        """
+        for index, row in df.iterrows():
+            cabinet_id = TerminalDataModel.safe_str(row.get("设备编号", ""))
+            if not cabinet_id:
+                logger.warning(f"{description}:{index}: 未找到设备编号，跳过该行。")
+                continue
+            cabinet = next((c for c in self.cabinets if c.id == cabinet_id), None)
+            if not cabinet:
+                cabinet = Cabinet(id=cabinet_id)
+                self.cabinets.append(cabinet)
+
+            component_id = TerminalDataModel.safe_str(row.get("元件编号", ""))
+            component_type = TerminalDataModel.safe_str(row.get("元件类型", ""))
+            terminals_raw = TerminalDataModel.safe_str(row.get("元件端子", ""))
+            terminal_names = TerminalDataModel.split_to_list(terminals_raw)
+
+            if not component_id:
+                logger.warning(f"{description}:{index}: 元件编号为空，跳过该行。")
+                continue
+
+            # 如果已有相同 component_id，记录并覆盖（或可改为合并）
+            if component_id in cabinet.backend_components:
+                logger.info(f"{description}:{index}: 元件 {component_id} 在机柜 {cabinet_id} 已存在，更新信息。")
+
+            info = BackendComponentInfo()
+            info.component_id = component_id
+            info.component_type = component_type
+            info.terminal_refs = [
+                TerminalRef(
+                    cabinet_id=cabinet_id,
+                    component_id=component_id,
+                    terminal_name= tn.split(':')[-1],  # 仅保留端子名部分
+                    terminal_type=TerminalType.BACKEND_COMPONENT
+                ) for tn in terminal_names
+            ]
+
+            cabinet.backend_components[component_id] = info
+            logger.debug(f"{description}:{index}: 读取元件 {component_id} (type={component_type}) 包含端子: {terminal_names}")
+
 
     def debug_print(self):
         for cabinet in self.cabinets:
@@ -701,6 +760,8 @@ class TerminalDataModel:
                         print(f"      External Connection Wire: Cable ID: {terminal_info.external_connection_wire.cable_id}, Loop Number: {terminal_info.external_connection_wire.loop_number}")
                     else:
                         print(f"      External Connection Wire: None")
+            for component_id, component_info in cabinet.backend_components.items():
+                print(f"  Backend Component ID: {component_id}, Type: {component_info.component_type}, Terminals: {component_info.terminal_refs}")
             for backend_connection in cabinet.backend_connections:
                 print(f"  Backend Connection: From {backend_connection.from_terminal} To {backend_connection.to_terminal}")
 
@@ -842,7 +903,13 @@ class TerminalDataModel:
                 fname_base = fname_base[:100]
             fp = os.path.join(out_folder, f"{fname_base}.drawio")
 
-            g.to_drawio_xml(fp, title=title)
+            # 构建 component_type 映射 (cabinet_id, component_id) -> component_type
+            comp_map: Dict[Tuple[str,str], str] = {}
+            for cabinet in self.cabinets:
+                for cid, info in cabinet.backend_components.items():
+                    comp_map[(cabinet.id, cid)] = getattr(info, "component_type", "") or ""
+
+            g.to_drawio_xml(fp, title=title, component_types=comp_map)
             out_paths.append(fp)
         return out_paths
 
