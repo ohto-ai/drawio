@@ -10,6 +10,27 @@ import os
 import logging
 logger = logging.getLogger(__name__)
 
+
+# 预定义的 component 图形映射：类型名 -> mxCell style + 默认宽高/值
+# 只在能识别类型时使用，未识别则回退为文字标签
+COMPONENT_GRAPHICS: Dict[str, Dict[str, object]] = {
+    # 闭合开关（示例：开关闭合状态）
+    "闭合开关": {
+        "style": "html=1;shape=mxgraph.electrical.electro-mechanical.singleSwitch;aspect=fixed;elSwitchState=on;",
+        "width": 75,
+        "height": 20,
+        "value": ""
+    },
+    # 刀开关（示例：开关断开状态）
+    "刀开关": {
+        "style": "html=1;shape=mxgraph.electrical.electro-mechanical.singleSwitch;aspect=fixed;elSwitchState=off;",
+        "width": 75,
+        "height": 20,
+        "value": ""
+    },
+    # 可按需添加更多映射，键可以是中文类型或从 Excel 中读取到的原始类型字符串
+}
+
 # 机柜信息
 @dataclass
 class Cabinet:
@@ -307,24 +328,45 @@ class ConnectionGraph:
                 # 尝试用提供的 component_types 映射显示元件类型；否则回退为 component_id
                 comp_cabinet = gkey[1]
                 comp_id = gkey[2] or ""
-                comp_label = None
+                # 优先使用已知图形映射（COMPONENT_GRAPHICS），否则绘制文字块
+                comp_type_str = None
                 if component_types:
-                    comp_label = component_types.get((comp_cabinet, comp_id))
-                if not comp_label:
-                    comp_label = comp_id or "COMPONENT"
-                comp_style = "shape=rectangle;rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E8F0FE;strokeColor=#1A73E8"
-                comp_cell = ET.SubElement(root, "mxCell", id=comp_block_id, value=escape(comp_label), style=comp_style, vertex="1", parent=gid)
+                    comp_type_str = component_types.get((comp_cabinet, comp_id))
+                # 允许直接用 component_id 作为回退类型名
+                comp_type_str = comp_type_str or comp_id or ""
+
                 comp_x = x_col + 12
                 comp_y = group_y_top + top_padding + label_height + between_label_and_nodes
                 comp_w = max(40, group_width - 24)
                 comp_h = max(node_height, inner_nodes_height)
-                ET.SubElement(comp_cell, "mxGeometry", attrib={
-                    "x": str(comp_x - x_col),
-                    "y": str(comp_y - group_y_top),
-                    "width": str(comp_w),
-                    "height": str(comp_h),
-                    "as": "geometry"
-                })
+
+                gfx = COMPONENT_GRAPHICS.get(comp_type_str)
+                if gfx:
+                    # 使用预定义图形（保持 parent=gid，以便放在组内）
+                    comp_cell = ET.SubElement(root, "mxCell", id=comp_block_id, value=gfx.get("value", ""),
+                                              style=gfx.get("style", ""), vertex="1", parent=gid)
+                    g_w = int(gfx.get("width", comp_w))
+                    g_h = int(gfx.get("height", comp_h))
+                    # 居中放置在组可用宽度内（左内边距为 12）
+                    ET.SubElement(comp_cell, "mxGeometry", attrib={
+                        "x": str(comp_x - x_col + max(0, (comp_w - g_w)//2)),
+                        "y": str(comp_y - group_y_top + max(0, (comp_h - g_h)//2)),
+                        "width": str(g_w),
+                        "height": str(g_h),
+                        "as": "geometry"
+                    })
+                else:
+                    # 回退为文字标签的矩形块
+                    comp_label = comp_type_str or "COMPONENT"
+                    comp_style = "shape=rectangle;rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E8F0FE;strokeColor=#1A73E8"
+                    comp_cell = ET.SubElement(root, "mxCell", id=comp_block_id, value=escape(comp_label), style=comp_style, vertex="1", parent=gid)
+                    ET.SubElement(comp_cell, "mxGeometry", attrib={
+                        "x": str(comp_x - x_col),
+                        "y": str(comp_y - group_y_top),
+                        "width": str(comp_w),
+                        "height": str(comp_h),
+                        "as": "geometry"
+                    })
                 # 把组内所有端子指向这个块 id（边会连接到该块）
                 for nstr in ordered_nodes:
                     node_cell_ids[nstr] = comp_block_id
