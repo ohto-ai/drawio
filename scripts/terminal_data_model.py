@@ -39,8 +39,10 @@ class Cabinet:
     panel_terminal_blocks: List['TerminalBlock'] = field(default_factory=list)
     backend_connections: List['BackendConnection'] = field(default_factory=list)
     # device group 布局： device_group_id -> List[List[terminal_name]]（按行的二维列表）
-    device_groups_layout: Dict[str, List[List[str]]] = field(default_factory=dict)
+    # device_groups_layout: Dict[str, List[List[str]]] = field(default_factory=dict)
     backend_components: Dict[str, 'BackendComponentInfo'] = field(default_factory=dict)
+    backend_device_groups: Dict[str, 'BackendDeviceGroupInfo'] = field(default_factory=dict)
+    
 
 
 class TerminalType(Enum):
@@ -53,14 +55,18 @@ class BackendComponentInfo:
     component_type: str
     terminal_refs: List['TerminalRef']
 
+class BackendDeviceGroupInfo:
+    device_id: str
+    device_group_id: str
+    terminal_refs: List['TerminalRef']
+
 @dataclass
 class TerminalRef:
     cabinet_id: str
     # 1. 前端面板是  terminal_block_id + terminal_name
-    # 2. 后端装置是  device_group_id + terminal_name
+    # 2. 后端装置是  terminal_name
     # 3. 后端元件是  component_id + terminal_name
     terminal_block_id: Optional[str] = None
-    device_group_id: Optional[str] = None
     component_id: Optional[str] = None
     terminal_name: str = ""
     terminal_type: TerminalType = None
@@ -69,14 +75,14 @@ class TerminalRef:
         if self.terminal_type == TerminalType.FRONT_PANEL:
             return f"{self.cabinet_id}/@PANEL:{self.terminal_block_id}:{self.terminal_name}"
         elif self.terminal_type == TerminalType.BACKEND_DEVICE:
-            return f"{self.cabinet_id}/@DEVICE_GROUP:{self.device_group_id}:{self.terminal_name}"
+            return f"{self.cabinet_id}/@DEVICE:{self.terminal_name}"
         elif self.terminal_type == TerminalType.BACKEND_COMPONENT:
             return f"{self.cabinet_id}/@COMPONENT:{self.component_id}:{self.terminal_name}"
         else:
             return f"{self.cabinet_id}/@UNKNOWN/{self.terminal_name}"
 
     def __hash__(self):
-        return hash((self.cabinet_id, self.terminal_block_id, self.device_group_id, self.component_id, self.terminal_name, self.terminal_type))
+        return hash((self.cabinet_id, self.terminal_block_id, self.component_id, self.terminal_name, self.terminal_type))
 
 @dataclass
 class TerminalInfo:
@@ -311,15 +317,251 @@ class ConnectionGraph:
         for col, items in columns.items():
             items.sort(key=lambda k: (-len(adj.get(k, [])), k))
 
-        # 为每列计算堆叠的 y（考虑每组高度），并生成最终 (x,y) 映射
-        group_positions: Dict[Tuple[str,str,str], Tuple[int,int]] = {}
+        # 改进布局：
+        # 1) 列顺序优化（局部相邻列交换，减少跨列交叉）
+        # 2) 列内按重心（barycenter）排序，尽量把与同列外相连较近的组放在一起，减少交叉
+        # 3) 处理柜体间重叠：若 cabinet 的外框在水平上与之前的 cabinet 重叠，则把后续列整体右移以避免重叠
+
+        # 生成初始列顺序
+        col_order = sorted(columns.keys())
+
+        # 预计算列内每组的行索引（固定排序）
+        col_row_index: Dict[int, Dict[Tuple[str,str,str], int]] = {}
+        for c, items in columns.items():
+            col_row_index[c] = {g: idx for idx, g in enumerate(items)}
+
+        # 计算交叉代价函数（同之前实现的贪心相邻交换）
+        def total_crossings_for_order(order: List[int]) -> int:
+            pos_map = {col: i for i, col in enumerate(order)}
+            edges_between: Dict[Tuple[int,int], List[Tuple[int,int]]] = {}
+            for key in self.edges.keys():
+                a_str, b_str = self.repr_map[key]
+                g_a = node_to_group.get(a_str)
+                g_b = node_to_group.get(b_str)
+                if not g_a or not g_b or g_a == g_b:
+                    continue
+                # 找到两端所在列（原列编号）
+                col_a = group_column.get(g_a)
+                col_b = group_column.get(g_b)
+                if col_a is None or col_b is None or col_a == col_b:
+                    continue
+                pos_a = pos_map.get(col_a)
+                pos_b = pos_map.get(col_b)
+                if pos_a is None or pos_b is None or pos_a == pos_b:
+                    continue
+                if pos_a < pos_b:
+                    left_col, right_col = col_a, col_b
+                    left_row = col_row_index[left_col].get(g_a, 0)
+                    right_row = col_row_index[right_col].get(g_b, 0)
+                else:
+                    left_col, right_col = col_b, col_a
+                    left_row = col_row_index[left_col].get(g_b, 0)
+                    right_row = col_row_index[right_col].get(g_a, 0)
+                edges_between.setdefault((pos_map[left_col], pos_map[right_col]), []).append((left_row, right_row))
+            total = 0
+            for lst in edges_between.values():
+                lst.sort(key=lambda lr: lr[0])
+                right_seq = [r for _, r in lst]
+                inv = 0
+                for i in range(len(right_seq)):
+                    for j in range(i+1, len(right_seq)):
+                        if right_seq[i] > right_seq[j]:
+                            inv += 1
+                total += inv
+            return total
+
+        # 局部相邻列交换优化（贪心）
+        if len(col_order) > 1:
+            improved = True
+            max_iters = max(10, len(col_order) * 3)
+            it = 0
+            best_order = col_order[:]
+            best_score = total_crossings_for_order(best_order)
+            while improved and it < max_iters:
+                improved = False
+                it += 1
+                for i in range(len(best_order) - 1):
+                    cand = best_order[:]
+                    cand[i], cand[i+1] = cand[i+1], cand[i]
+                    score = total_crossings_for_order(cand)
+                    if score < best_score:
+                        best_score = score
+                        best_order = cand
+                        improved = True
+                        break
+            col_order = best_order
+
+        # 列内按重心（barycenter）重新排序，降低列间交叉（不改变组内终端顺序）
+        col_pos_map = {col: idx for idx, col in enumerate(col_order)}
+        for col in list(columns.keys()):
+            items = columns[col]
+            barycenters: Dict[Tuple[str,str,str], float] = {}
+            for g in items:
+                neigh_cols = []
+                for nb in adj.get(g, []):
+                    nb_col = group_column.get(nb)
+                    if nb_col is not None:
+                        neigh_cols.append(col_pos_map.get(nb_col, col_pos_map.get(nb_col, 0)))
+                if neigh_cols:
+                    barycenters[g] = sum(neigh_cols) / len(neigh_cols)
+                else:
+                    barycenters[g] = col_pos_map.get(col, 0)
+            items.sort(key=lambda g: (barycenters.get(g, 0), -len(adj.get(g, [])), g))
+            columns[col] = items
+
+        # 初始列 x 坐标（根据优化后 col_order）
+        columns_x: Dict[int, int] = {}
+        for idx, col in enumerate(col_order):
+            columns_x[col] = group_x + idx * (group_width + group_gap)
+
+        # 根据初始 columns_x 计算 group_positions 的 x,y，然后检测 Cabinet 之间水平重叠，
+        # 若重叠则把后续列整体右移以消除重叠（迭代处理，保证柜体之间保留最小间隔）
+        group_positions = {}
         vertical_gap = max(16, group_gap // 2)
-        for col in sorted(columns.keys()):
+        # 先生成初始 positions（不考虑 cabinet 容器）
+        for col in col_order:
             cur_y = group_y_top
             for gkey in columns[col]:
-                x = group_x + col * (group_width + group_gap)
+                x = columns_x[col]
                 group_positions[gkey] = (x, cur_y)
                 cur_y += group_heights[gkey] + vertical_gap
+
+        # -----------------------------
+        # 柜内布局优化（左右两列：左侧放 FRONT_PANEL，右侧放其它）
+        # -----------------------------
+        # 按 cabinet 收集组
+        cab_groups: Dict[str, List[Tuple[str,str,str]]] = {}
+        for gkey in list(group_positions.keys()):
+            cab = gkey[1] or ""
+            cab_groups.setdefault(cab, []).append(gkey)
+
+        for cab, gkeys in cab_groups.items():
+            if not cab or len(gkeys) <= 1:
+                continue
+            # 分左右列
+            left_groups = [g for g in gkeys if g[0] == "PANEL"]
+            right_groups = [g for g in gkeys if g[0] != "PANEL"]
+
+            # 构建柜内邻接关系，仅考虑属于同 cabinet 的组
+            intra_adj: Dict[Tuple[str,str,str], Set[Tuple[str,str,str]]] = {g: set() for g in gkeys}
+            for key in self.edges.keys():
+                a_str, b_str = self.repr_map[key]
+                g_a = node_to_group.get(a_str)
+                g_b = node_to_group.get(b_str)
+                if g_a in intra_adj and g_b in intra_adj and g_a != g_b:
+                    intra_adj[g_a].add(g_b)
+                    intra_adj[g_b].add(g_a)
+
+            # 重心（基于当前 y 位置）用于排序
+            def barycenter(g):
+                neigh = intra_adj.get(g, ())
+                if not neigh:
+                    return group_positions[g][1]
+                vals = [group_positions[n][1] for n in neigh if n in group_positions]
+                return sum(vals) / len(vals) if vals else group_positions[g][1]
+
+            left_groups.sort(key=lambda g: (barycenter(g), -len(intra_adj.get(g, [])), g))
+            right_groups.sort(key=lambda g: (barycenter(g), -len(intra_adj.get(g, [])), g))
+
+            # 计算两列的 x 偏移（以当前 cabinet 内最左 x 为基准）
+            xs = [group_positions[g][0] for g in gkeys]
+            minx = min(xs)
+            left_x = minx
+            inner_gap = max(12, group_gap // 4)
+            right_x = left_x + group_width + inner_gap
+
+            # 垂直对齐：按行放置左右两列，同一行高度取两者最大值
+            max_rows = max(len(left_groups), len(right_groups))
+            start_y = min(group_positions[g][1] for g in gkeys)
+            cur_y = start_y
+            for i in range(max_rows):
+                gL = left_groups[i] if i < len(left_groups) else None
+                gR = right_groups[i] if i < len(right_groups) else None
+                hL = group_heights[gL] if gL else 0
+                hR = group_heights[gR] if gR else 0
+                row_h = max(hL, hR, node_height)
+                if gL:
+                    group_positions[gL] = (left_x, cur_y)
+                if gR:
+                    group_positions[gR] = (right_x, cur_y)
+                cur_y += row_h + vertical_gap
+
+        # 重新计算 cabinet_boxes 基于优化后的 group_positions（后续使用）
+        # 注意：后面代码会再次计算 cabinet_boxes，但这里提前更新以减少后续重叠处理
+        # （如果后续逻辑有基于旧 positions 的操作，请保留一致）
+        # -----------------------------
+
+        # 计算 cabinet_boxes（基于初始 group_positions）
+        def compute_cabinet_boxes(positions: Dict[Tuple[str,str,str], Tuple[int,int]]) -> Dict[str, Tuple[int,int,int,int]]:
+            boxes = {}
+            for gkey, (gx, gy) in positions.items():
+                cab = gkey[1] or ""
+                if not cab:
+                    continue
+                gh = group_heights[gkey]
+                minx, miny = gx, gy
+                maxx, maxy = gx + group_width, gy + gh
+                if cab in boxes:
+                    ox1, oy1, ox2, oy2 = boxes[cab]
+                    boxes[cab] = (min(minx, ox1), min(miny, oy1), max(maxx, ox2), max(maxy, oy2))
+                else:
+                    boxes[cab] = (minx, miny, maxx, maxy)
+            return boxes
+
+        # 基于列 x 坐标对柜体外框做水平分离，避免柜体重叠
+        cabinet_boxes = compute_cabinet_boxes(group_positions)
+        min_cab_gap = max(24, group_gap // 2)
+
+        # 按左侧 x 排序的 cabinet 列表
+        cab_items = sorted(cabinet_boxes.items(), key=lambda kv: kv[1][0])
+        # 逐个检查并右移后续列以消除重叠（只调整 columns_x）
+        # 注意：对 columns_x 使用 list(...) 遍历以避免迭代时修改 dict 导致问题
+        for cab_id, (minx, miny, maxx, maxy) in cab_items:
+            # 重新计算当前 cabinet_boxes（因为上次可能已被修改）
+            cabinet_boxes = compute_cabinet_boxes(group_positions)
+            # 找到最靠近且位于当前 cabinet 左侧的最大 right
+            left_neighbors = [(k, v) for k, v in cabinet_boxes.items() if v[2] < minx]
+            prev_max = max((v[2] for _, v in left_neighbors), default=-10**9)
+            target_minx = prev_max + min_cab_gap if prev_max > -10**8 else minx
+            if minx < target_minx:
+                need = target_minx - minx
+                # 对所有列 whose x >= minx 的列右移 need
+                for col, x in list(columns_x.items()):
+                    if x >= minx:
+                        columns_x[col] = x + need
+                # 更新 group_positions 基于新的 columns_x
+                for col in col_order:
+                    cur_y = group_y_top
+                    for gkey in columns[col]:
+                        x = columns_x[col]
+                        group_positions[gkey] = (x, cur_y)
+                        cur_y += group_heights[gkey] + vertical_gap
+                # 重新计算 cabinet_boxes 用于后续判断
+                cabinet_boxes = compute_cabinet_boxes(group_positions)
+
+        # 最终确保 group_positions 与 columns_x 保持一致（如果没有变动，上面也会生成）
+        for col in col_order:
+            cur_y = group_y_top
+            for gkey in columns[col]:
+                x = columns_x[col]
+                group_positions[gkey] = (x, cur_y)
+                cur_y += group_heights[gkey] + vertical_gap
+
+        # 为每个 Cabinet 计算包含所有其组的外框（用于绘制大方框容器）
+        cabinet_boxes: Dict[str, Tuple[int,int,int,int]] = {}  # cabinet_id -> (minx,miny,maxx,maxy)
+        for gkey, (gx, gy) in group_positions.items():
+            cab_id = gkey[1] or ""
+            if not cab_id:
+                continue
+            gw = group_width
+            gh = group_heights[gkey]
+            minx, miny = gx, gy
+            maxx, maxy = gx + gw, gy + gh
+            if cab_id in cabinet_boxes:
+                ox1, oy1, ox2, oy2 = cabinet_boxes[cab_id]
+                cabinet_boxes[cab_id] = (min(minx, ox1), min(miny, oy1), max(maxx, ox2), max(maxy, oy2))
+            else:
+                cabinet_boxes[cab_id] = (minx, miny, maxx, maxy)
 
         # id generator
         next_id = 2
@@ -342,14 +584,21 @@ class ConnectionGraph:
         ET.SubElement(root, "mxCell", id="0")
         ET.SubElement(root, "mxCell", id="1", parent="0")
 
+        # 不再绘制机柜外框（去掉大方框），仅保留用于标注的 cabinet id 映射占位（空）
+        # 组仍按计算好的绝对坐标放置在主画布上，稍后会在每个组标签中显示机柜名以便区分
+        cabinet_cell_ids: Dict[str, str] = {}
+        cabinet_padding = 0
+
+
         for gkey, nodes in sorted_groups:
-            # 使用预先计算好的位置（x,y）放置最外层组容器
+            # 使用预先计算好的绝对位置（x,y）放置最外层组容器（始终放在根 parent="1"）
             pos = group_positions.get(gkey, (group_x, group_y_top))
             x_col, group_top_y = pos
             gid = gen_id()
             group_cell_ids[gkey] = gid
-            g_label = f"{gkey[0]}:{gkey[2] or gkey[1]}"
-            # group cell （不直接在这里放文本，文本作为单独子 cell 放在容器顶部）
+            # 在组标签中加入机柜名，便于区分
+            cab_name = gkey[1] or ""
+            g_label = f"{cab_name} | {gkey[0]}:{gkey[2] or gkey[1]}"
             group_style = "rounded=1;strokeColor=#444444;fillColor=#f5f5f5;"
             group_cell = ET.SubElement(root, "mxCell", id=gid, value="", style=group_style, vertex="1", parent="1")
 
@@ -682,13 +931,12 @@ class TerminalDataModel:
                 else:
                     # 自己单独一组
                     # 如果小写abcn结尾
-                    if ic.endswith(('a', 'b', 'c', 'n')):
-                        ic_device_group_id = ic[:-1]
-                    else:
-                        ic_device_group_id = ic
+                    # if ic.endswith(('a', 'b', 'c', 'n')):
+                    #     ic_device_group_id = ic[:-1]
+                    # else:
+                    #     ic_device_group_id = ic
                     ic_terminal_ref = TerminalRef(
                         cabinet_id=cabinet_id,
-                        device_group_id=ic_device_group_id,
                         terminal_name=ic,
                         terminal_type=TerminalType.BACKEND_DEVICE
                     )
@@ -735,30 +983,15 @@ class TerminalDataModel:
                     parts = terminal_str.split(':', 1)
                     id_part = parts[0].strip()
                     name_part = parts[1].strip()
-                    if re.match(r'^\d', id_part):
-                        return TerminalRef(
-                            cabinet_id=cabinet_id,
-                            component_id=id_part,
-                            terminal_name=name_part,
-                            terminal_type=TerminalType.BACKEND_COMPONENT
-                        )
-                    else:
-                        return TerminalRef(
-                            cabinet_id=cabinet_id,
-                            device_group_id=id_part,
-                            terminal_name=name_part,
-                            terminal_type=TerminalType.BACKEND_DEVICE
-                        )
-                else:
-                    # 自己单独一组
-                    # 如果小写abcn结尾
-                    if terminal_str.endswith(('a', 'b', 'c', 'n')):
-                        ic_device_group_id = terminal_str[:-1]
-                    else:
-                        ic_device_group_id = terminal_str
                     return TerminalRef(
                         cabinet_id=cabinet_id,
-                        device_group_id=ic_device_group_id,
+                        component_id=id_part,
+                        terminal_name=name_part,
+                        terminal_type=TerminalType.BACKEND_COMPONENT
+                    )
+                else:
+                    return TerminalRef(
+                        cabinet_id=cabinet_id,
                         terminal_name=terminal_str,
                         terminal_type=TerminalType.BACKEND_DEVICE
                     )
@@ -788,10 +1021,6 @@ class TerminalDataModel:
             1ABA01GG003	42LH	42LH1	42LHb
             1ABA01GG003	42LH	42LH2	42LHc
             1ABA01GG003	42LH	42LH2	42LHn
-        表示 device_group_id=61LH 的一组包含 4 个端子，排布为 2 列、2 行（按读到的行顺序）。
-        本函数会：
-         - 把每个 cabinet 的 device_groups_layout 填充为二维行列表
-         - 尝试在当前 cabinet 中查找与每个端子名匹配的 TerminalRef 实例，设置其 device_group_id
         """
         for index, row in df.iterrows():
             cabinet_id = TerminalDataModel.safe_str(row.get("设备编号", ""))
@@ -807,6 +1036,33 @@ class TerminalDataModel:
             device_id = TerminalDataModel.safe_str(row.get("装置编号", ""))
             device_group_id = TerminalDataModel.safe_str(row.get("装置组编号", "")) or device_id
             layout_terminals_raw = TerminalDataModel.safe_str(row.get("布局端子", ""))
+            terminal_names = TerminalDataModel.split_to_list(layout_terminals_raw)
+
+            if not device_group_id:
+                logger.warning(f"{description}:{index}: 装置组编号为空，使用装置编号或跳过。")
+                continue
+
+            # 创建或取出 BackendDeviceGroupInfo
+            dg_info = cabinet.backend_device_groups.get(device_group_id)
+            if not dg_info:
+                dg_info = BackendDeviceGroupInfo()
+                dg_info.device_id = device_id
+                dg_info.device_group_id = device_group_id
+                dg_info.terminal_refs = []
+                cabinet.backend_device_groups[device_group_id] = dg_info
+
+            # 将布局端子解析为 TerminalRef 列表并加入 dg_info
+            for tn in terminal_names:
+                if not tn:
+                    continue
+                tref = TerminalRef(
+                    cabinet_id=cabinet_id,
+                    terminal_name=tn.strip(),
+                    terminal_type=TerminalType.BACKEND_DEVICE
+                )
+                dg_info.terminal_refs.append(tref)
+            logger.debug(f"{description}:{index}: 读取柜 {cabinet_id} 装置组 {device_group_id} 布局端子: {terminal_names}")
+
 
     def _process_backend_components_dataframe(self, df: pd.DataFrame, description: str =""):
         """
@@ -871,6 +1127,8 @@ class TerminalDataModel:
                 print(f"  Backend Component ID: {component_id}, Type: {component_info.component_type}, Terminals: {component_info.terminal_refs}")
             for backend_connection in cabinet.backend_connections:
                 print(f"  Backend Connection: From {backend_connection.from_terminal} To {backend_connection.to_terminal}")
+            for dgid, dginfo in cabinet.backend_device_groups.items():
+                print(f"  Backend Device Group ID: {dgid}, Device ID: {dginfo.device_id}, Terminals: {dginfo.terminal_refs}")
 
     def build_connection_graph_groups(self) -> List[ConnectionGraph]:
         """
@@ -927,8 +1185,6 @@ class TerminalDataModel:
                 return
             if t.component_id:
                 terminals_by_component.setdefault((t.cabinet_id, t.component_id), []).append(t)
-            if t.device_group_id:
-                terminals_by_device_group.setdefault((t.cabinet_id, t.device_group_id), []).append(t)
 
         for cabinet in self.cabinets:
             for tb in cabinet.panel_terminal_blocks:
@@ -942,6 +1198,13 @@ class TerminalDataModel:
             for bc in cabinet.backend_connections:
                 collect_terminal(bc.from_terminal)
                 collect_terminal(bc.to_terminal)
+            # 从 cabinet.backend_device_groups 中收集 device_group terminals
+            for dgid, dginfo in cabinet.backend_device_groups.items():
+                key = (cabinet.id, dgid)
+                lst = terminals_by_device_group.setdefault(key, [])
+                for tref in getattr(dginfo, "terminal_refs", []):
+                    lst.append(tref)
+
 
         for group_key, items in terminals_by_component.items():
             # 不自动绘制组内连线；记录 virtual group 用于连通性判断（查询时 a 可到达组内其他节点）
