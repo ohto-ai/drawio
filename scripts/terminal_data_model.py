@@ -10,6 +10,8 @@ import os
 import logging
 logger = logging.getLogger(__name__)
 
+# 设置debug
+logging.basicConfig(level=logging.DEBUG)
 
 # 预定义的 component 图形映射：类型名 -> mxCell style + 默认宽高/值
 # 只在能识别类型时使用，未识别则回退为文字标签
@@ -113,7 +115,7 @@ class GlobalWireRef:
     def __str__(self):
         # 使用可识别的前缀以便在 to_drawio_xml 中特殊处理
         # 格式: GLOBAL_WIRE:<cable_id or "">:<loop_number>
-        return f"GLOBAL_WIRE:{self.cable_id or ''}:{self.loop_number}"
+        return f"@GLOBAL_WIRE:{self.cable_id or ''}:{self.loop_number}"
     def __repr__(self):
         return self.__str__()
 
@@ -219,22 +221,22 @@ class ConnectionGraph:
         """
         将当前 ConnectionGraph 导出为 draw.io (.drawio 即 xml) 文件。
         输出结构与示例保持一致：<mxfile><diagram><mxGraphModel>...</mxGraphModel></diagram></mxfile>
-        布局规则同前：按 PANEL/DEVICE_GROUP/COMPONENT 分组；组内按行排列；组之间按列排列。
+        布局规则同前：按 PANEL/DEVICE/COMPONENT 分组；组内按行排列；组之间按列排列。
         """
         def node_group_key(node_str: str):
             # 特殊处理全局线束，不放入任何组内
-            if node_str.startswith("GLOBAL_WIRE:"):
+            if node_str.startswith("@GLOBAL_WIRE:"):
                 m = re.match(r"GLOBAL_WIRE:([^:]*):(.*)", node_str)
                 if m:
-                    return ("GLOBAL_WIRE", m.group(1), m.group(2))
+                    return ("@GLOBAL_WIRE", m.group(1), m.group(2))
             if "/@PANEL:" in node_str:
                 m = re.match(r"([^/]+)/@PANEL:([^:]+):(.+)", node_str)
                 if m:
                     return ("PANEL", m.group(1), m.group(2))
-            if "/@DEVICE_GROUP:" in node_str:
-                m = re.match(r"([^/]+)/@DEVICE_GROUP:([^:]+):(.+)", node_str)
+            if "/@DEVICE:" in node_str:
+                m = re.match(r"([^/]+)/@DEVICE:([^:]+):(.+)", node_str)
                 if m:
-                    return ("DEVICE_GROUP", m.group(1), m.group(2))
+                    return ("DEVICE", m.group(1), m.group(2))
             if "/@COMPONENT:" in node_str:
                 m = re.match(r"([^/]+)/@COMPONENT:([^:]+):(.+)", node_str)
                 if m:
@@ -247,7 +249,7 @@ class ConnectionGraph:
         groups: Dict[Tuple[str,str,str], List[str]] = {}
         wire_nodes: List[str] = []
         for node in self.nodes:
-            if node.startswith("GLOBAL_WIRE:"):
+            if node.startswith("@GLOBAL_WIRE:"):
                 # 收集全局线，不放入 groups 中
                 wire_nodes.append(node)
                 continue
@@ -722,7 +724,7 @@ class ConnectionGraph:
         wire_index = 0
         for w in sorted(wire_nodes):
             # 解析显示标签
-            m = re.match(r"GLOBAL_WIRE:([^:]*):(.*)", w)
+            m = re.match(r"@GLOBAL_WIRE:([^:]*):(.*)", w)
             if m:
                 cable = m.group(1) or ""
                 loop = m.group(2) or ""
@@ -1264,18 +1266,24 @@ class TerminalDataModel:
             tb_ids = set()
             dg_ids = set()
             comp_ids = set()
+            gw_ids = set()
             for node in g.nodes:
                 m = re.match(r"[^/]+/@PANEL:([^:]+):", node)
                 if m:
                     tb_ids.add(m.group(1))
                     continue
-                m = re.match(r"[^/]+/@DEVICE_GROUP:([^:]+):", node)
+                m = re.match(r"[^/]+/@DEVICE:([^']+)'", node)
                 if m:
                     dg_ids.add(m.group(1))
                     continue
                 m = re.match(r"[^/]+/@COMPONENT:([^:]+):", node)
                 if m:
                     comp_ids.add(m.group(1))
+                    continue
+                m = re.match(r"@GLOBAL_WIRE:([^:]*):(.*)", node)
+                if m:
+                    gw_ids.add(f"{m.group(1)}/{m.group(2)}")
+                    print("found global wire " + m.group(1) + "/" + m.group(2))
                     continue
 
             parts = []
@@ -1285,6 +1293,10 @@ class TerminalDataModel:
                 parts.append("DG:" + ",".join(sorted(dg_ids)))
             if comp_ids:
                 parts.append("CMP:" + ",".join(sorted(comp_ids)))
+            if gw_ids:
+                parts.append("GW:" + ",".join(sorted(gw_ids)))
+            if not dg_ids and not comp_ids and not gw_ids:
+                parts.append("SEQ:" + str(i))
             title = " | ".join(parts) if parts else f"Group {i}"
 
             # sanitize filename (移除/替换不安全字符)
@@ -1295,6 +1307,8 @@ class TerminalDataModel:
             if len(fname_base) > 100:
                 fname_base = fname_base[:100]
             fp = os.path.join(out_folder, f"{fname_base}.drawio")
+            if out_paths.count(fp):
+                fp = os.path.join(out_folder, f"{fname_base}_{i}.drawio")
 
             # 构建 component_type 映射 (cabinet_id, component_id) -> component_type
             comp_map: Dict[Tuple[str,str], str] = {}
