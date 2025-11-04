@@ -250,6 +250,77 @@ class ConnectionGraph:
 
         sorted_groups = sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2]))
 
+        # 基本布局起点（提前定义，后续计算列/行位置时需要引用）
+        group_x = 40
+        group_y_top = 40
+
+        from collections import deque
+
+        # 布局策略：基于组间连通关系进行逻辑布局（距离层级 -> 列；列内堆叠）
+        # 先计算每个组的高度（与原来一致），用于列内堆叠
+        top_padding = 8
+        label_height = 18
+        between_label_and_nodes = 6
+        bottom_padding = 8
+        group_heights: Dict[Tuple[str,str,str], int] = {}
+        for gkey, nodes in sorted_groups:
+            col_node_count = len(nodes)
+            inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
+            group_heights[gkey] = top_padding + label_height + between_label_and_nodes + inner_nodes_height + bottom_padding
+
+        # node -> gkey 映射（加速查找）
+        node_to_group: Dict[str, Tuple[str,str,str]] = {}
+        for gkey, nodes in sorted_groups:
+            for n in nodes:
+                node_to_group[n] = gkey
+
+        # 根据 edges 构建组间邻接关系（若边跨组，则组相连）
+        adj: Dict[Tuple[str,str,str], Set[Tuple[str,str,str]]] = {gkey:set() for gkey,_ in sorted_groups}
+        for key in self.edges.keys():
+            a_str, b_str = self.repr_map[key]
+            g_a = node_to_group.get(a_str)
+            g_b = node_to_group.get(b_str)
+            if g_a and g_b and g_a != g_b:
+                adj[g_a].add(g_b)
+                adj[g_b].add(g_a)
+
+        # BFS 分配列号（以距离为列），对每个连通子集分配起点为当前子集度数最大的组
+        unvisited = set(adj.keys())
+        group_column: Dict[Tuple[str,str,str], int] = {}
+        while unvisited:
+            start = max(unvisited, key=lambda k: len(adj[k]))
+            dq = deque()
+            dq.append((start, 0))
+            group_column[start] = 0
+            unvisited.remove(start)
+            while dq:
+                cur, dist = dq.popleft()
+                for nb in sorted(adj[cur], key=lambda k: (len(adj[k]), k)):
+                    if nb in group_column:
+                        continue
+                    group_column[nb] = dist + 1
+                    if nb in unvisited:
+                        unvisited.remove(nb)
+                    dq.append((nb, dist+1))
+
+        # 收集每列的组，并在列内按度数降序（稳定）排列
+        columns: Dict[int, List[Tuple[str,str,str]]] = {}
+        for gkey, _ in sorted_groups:
+            col = group_column.get(gkey, 0)
+            columns.setdefault(col, []).append(gkey)
+        for col, items in columns.items():
+            items.sort(key=lambda k: (-len(adj.get(k, [])), k))
+
+        # 为每列计算堆叠的 y（考虑每组高度），并生成最终 (x,y) 映射
+        group_positions: Dict[Tuple[str,str,str], Tuple[int,int]] = {}
+        vertical_gap = max(16, group_gap // 2)
+        for col in sorted(columns.keys()):
+            cur_y = group_y_top
+            for gkey in columns[col]:
+                x = group_x + col * (group_width + group_gap)
+                group_positions[gkey] = (x, cur_y)
+                cur_y += group_heights[gkey] + vertical_gap
+
         # id generator
         next_id = 2
         def gen_id():
@@ -271,12 +342,10 @@ class ConnectionGraph:
         ET.SubElement(root, "mxCell", id="0")
         ET.SubElement(root, "mxCell", id="1", parent="0")
 
-        # layout placement params
-        group_x = 40
-        group_y_top = 40
-
-        for gi, (gkey, nodes) in enumerate(sorted_groups):
-            x_col = group_x + gi * (group_width + group_gap)
+        for gkey, nodes in sorted_groups:
+            # 使用预先计算好的位置（x,y）放置最外层组容器
+            pos = group_positions.get(gkey, (group_x, group_y_top))
+            x_col, group_top_y = pos
             gid = gen_id()
             group_cell_ids[gkey] = gid
             g_label = f"{gkey[0]}:{gkey[2] or gkey[1]}"
@@ -284,17 +353,13 @@ class ConnectionGraph:
             group_style = "rounded=1;strokeColor=#444444;fillColor=#f5f5f5;"
             group_cell = ET.SubElement(root, "mxCell", id=gid, value="", style=group_style, vertex="1", parent="1")
 
-            # layout: 为标签和节点留出空间
-            top_padding = 8
-            label_height = 18
-            between_label_and_nodes = 6
-            bottom_padding = 8
+            # layout: 为标签和节点留出空间 (与上面计算保持一致)
             col_node_count = len(nodes)
             inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
             group_height = top_padding + label_height + between_label_and_nodes + inner_nodes_height + bottom_padding
-            ET.SubElement(group_cell, "mxGeometry", attrib={"x": str(x_col), "y": str(group_y_top), "width": str(group_width), "height": str(group_height), "as": "geometry"})
+            ET.SubElement(group_cell, "mxGeometry", attrib={"x": str(x_col), "y": str(group_top_y), "width": str(group_width), "height": str(group_height), "as": "geometry"})
 
-            # label cell：放在容器内顶部，明显可见，不会被节点遮挡
+            # label cell：放在容器内顶部，明显可见，不会被节点遮挡（y 坐标相对于组容器）
             label_id = gen_id()
             label_style = "text;html=1;align=left;verticalAlign=top;strokeColor=none;fillColor=none;fontStyle=1"
             label_cell = ET.SubElement(root, "mxCell", id=label_id, value=escape(g_label), style=label_style, vertex="1", parent=gid)
@@ -634,7 +699,7 @@ class TerminalDataModel:
             cable_id = TerminalDataModel.safe_str(row.get("电缆编号", ""))
             loop_number = TerminalDataModel.safe_str(row.get("回路号", ""))
             if not cable_id:
-                logger.warning(f"{description}:{index}: 警告: 端子 {terminal_ref} 的电缆编号为空，将仅使用回路号区分。")
+                logger.warning(f"{description}:{index}: 警告: 端子 {terminal_ref} 的电缆编号为空，将此处判定断开。")
             terminal_info.external_connection_wire = GlobalWireRef(
                 cable_id=cable_id if cable_id else None,
                 loop_number=loop_number
@@ -841,7 +906,14 @@ class TerminalDataModel:
                     for ic in terminal_info.internal_connection_terminal_refs:
                         graph.add_edge(terminal_ref, ic, "internal_connection")
                     if terminal_info.external_connection_wire:
-                        graph.add_edge(terminal_ref, terminal_info.external_connection_wire, "external_wire")
+                        # 仅当电缆编号存在时才认为属于同一 GlobalWire，从而建立到全局线的连边
+                        gw = terminal_info.external_connection_wire
+                        if getattr(gw, "cable_id", None):
+                            graph.add_edge(terminal_ref, gw, "external_wire")
+                        else:
+                            # 如果只有回路号但无电缆编号，则不认为与其他相同回路号节点相连
+                            # 不创建到 GLOBAL_WIRE 的边，避免把仅有回路号的端子错误合并
+                            pass
             # 4: cabinet backend_connections
             for bc in cabinet.backend_connections:
                 graph.add_edge(bc.from_terminal, bc.to_terminal, "backend_connection")
@@ -908,8 +980,24 @@ class TerminalDataModel:
         """
         os.makedirs(out_folder, exist_ok=True)
         groups = self.build_connection_graph_groups()
+        # 过滤：避免导出“空白”图纸
+        # - 跳过没有任何实际边且节点数 <= 1 的子图（通常是孤立单节点或无意义的空组）
+        # - 如果需要更严格的过滤规则，可在此处扩展（例如排除仅包含 GLOBAL_WIRE 的组等）
+        filtered_groups: List[ConnectionGraph] = []
+        for g in groups:
+            has_edges = bool(g.edges)
+            node_count = len(g.nodes)
+            if not has_edges and node_count <= 1:
+                logger.info(f"跳过空白子图：nodes={node_count}, edges={len(g.edges)}")
+                continue
+            filtered_groups.append(g)
+
+        if not filtered_groups:
+            logger.info("没有可导出的子图（所有子图被过滤）。")
+            return []
+
         out_paths = []
-        for i, g in enumerate(groups, start=1):
+        for i, g in enumerate(filtered_groups, start=1):
             tb_ids = set()
             dg_ids = set()
             comp_ids = set()
