@@ -249,11 +249,15 @@ class ConnectionGraph:
                       group_gap: int = 80, group_width: int = 240,
                       node_width: int = 180, node_height: int = 36, node_gap: int = 8,
                       component_types: Optional[Dict[Tuple[str, str], str]] = None,
-                      device_group_layouts: Optional[Dict[Tuple[str, str], List[List[Optional[str]]]]] = None):
+                      device_group_layouts: Optional[Dict[Tuple[str, str], List[List[Optional[str]]]]] = None,
+                      device_terminal_to_group_map: Optional[Dict[Tuple[str, str], str]] = None):
         """
         将当前 ConnectionGraph 导出为 draw.io (.drawio 即 xml) 文件。
         输出结构与示例保持一致：<mxfile><diagram><mxGraphModel>...</mxGraphModel></diagram></mxfile>
         布局规则同前：按 PANEL/DEVICE/COMPONENT 分组；组内按行排列；组之间按列排列。
+        
+        Args:
+            device_terminal_to_group_map: 映射 (cabinet_id, terminal_name) -> device_group_id
         """
         def node_group_key(node_str: str):
             # 特殊处理全局线束，不放入任何组内
@@ -266,10 +270,16 @@ class ConnectionGraph:
                 if m:
                     return ("PANEL", m.group(1), m.group(2))
             if "/@DEVICE:" in node_str:
-                # New format: CAB1/@DEVICE:terminal_name (no device_group_id in the identifier)
+                # New format: CAB1/@DEVICE:terminal_name
+                # Use device_terminal_to_group_map to find the device_group_id
                 m = re.match(r"([^/]+)/@DEVICE:(.+)", node_str)
                 if m:
-                    return ("DEVICE", m.group(1), "")
+                    cabinet_id = m.group(1)
+                    terminal_name = m.group(2)
+                    device_group_id = ""
+                    if device_terminal_to_group_map:
+                        device_group_id = device_terminal_to_group_map.get((cabinet_id, terminal_name), "")
+                    return ("DEVICE", cabinet_id, device_group_id)
             if "/@COMPONENT:" in node_str:
                 m = re.match(r"([^/]+)/@COMPONENT:([^:]+):(.+)", node_str)
                 if m:
@@ -304,10 +314,31 @@ class ConnectionGraph:
         between_label_and_nodes = 6
         bottom_padding = 20
         group_heights: Dict[Tuple[str,str,str], int] = {}
+        group_widths: Dict[Tuple[str,str,str], int] = {}
         for gkey, nodes in sorted_groups:
             col_node_count = len(nodes)
+            # For DEVICE groups with matrix layout, calculate based on actual layout dimensions
+            if gkey[0] == "DEVICE" and device_group_layouts:
+                device_cabinet = gkey[1]
+                device_group_id = gkey[2]
+                layout_key = (device_cabinet, device_group_id)
+                layout = device_group_layouts.get(layout_key)
+                if layout:
+                    # Calculate height based on number of rows, not total nodes
+                    num_rows = len(layout)
+                    inner_nodes_height = max(node_height, num_rows * (node_height + node_gap) - node_gap)
+                    # Calculate width based on number of columns
+                    max_cols = max(len(row) for row in layout) if layout else 1
+                    # Each column needs space for circle + text
+                    col_width = max(80, node_width // 2)  # Reasonable minimum per column
+                    inner_width = max_cols * col_width + 24  # 24 for padding (12 on each side)
+                    group_widths[gkey] = inner_width
+                else:
+                    # No layout data, use default single-column calculation
+                    inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
+                    group_widths[gkey] = group_width
             # For COMPONENT groups, check if we have actual graphic dimensions
-            if gkey[0] == "COMPONENT":
+            elif gkey[0] == "COMPONENT":
                 comp_cabinet = gkey[1]
                 comp_id = gkey[2] or ""
                 comp_type_str = None
@@ -322,8 +353,10 @@ class ConnectionGraph:
                 else:
                     # Fallback to default calculation for text-based components
                     inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
+                group_widths[gkey] = group_width
             else:
                 inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
+                group_widths[gkey] = group_width
             group_heights[gkey] = top_padding + label_height + between_label_and_nodes + inner_nodes_height + bottom_padding
 
         # node -> gkey 映射（加速查找）
@@ -520,7 +553,9 @@ class ConnectionGraph:
             minx = min(xs)
             left_x = minx
             inner_gap = max(12, group_gap // 4)
-            right_x = left_x + group_width + inner_gap
+            # Use the width of the widest group in this cabinet for spacing
+            max_width = max(group_widths.get(g, group_width) for g in gkeys)
+            right_x = left_x + max_width + inner_gap
 
             # 垂直对齐：按行放置左右两列，同一行高度取两者最大值
             max_rows = max(len(left_groups), len(right_groups))
@@ -551,8 +586,9 @@ class ConnectionGraph:
                 if not cab:
                     continue
                 gh = group_heights[gkey]
+                gw = group_widths.get(gkey, group_width)
                 minx, miny = gx, gy
-                maxx, maxy = gx + group_width, gy + gh
+                maxx, maxy = gx + gw, gy + gh
                 if cab in boxes:
                     ox1, oy1, ox2, oy2 = boxes[cab]
                     boxes[cab] = (min(minx, ox1), min(miny, oy1), max(maxx, ox2), max(maxy, oy2))
@@ -605,7 +641,7 @@ class ConnectionGraph:
             cab_id = gkey[1] or ""
             if not cab_id:
                 continue
-            gw = group_width
+            gw = group_widths.get(gkey, group_width)
             gh = group_heights[gkey]
             minx, miny = gx, gy
             maxx, maxy = gx + gw, gy + gh
@@ -655,11 +691,12 @@ class ConnectionGraph:
             group_cell = ET.SubElement(root, "mxCell", id=gid, value="", style=group_style, vertex="1", parent="1")
 
             # layout: 为标签和节点留出空间 (与上面计算保持一致)
-            # Use pre-calculated group_height to ensure consistency
+            # Use pre-calculated group_height and group_width to ensure consistency
             group_height = group_heights[gkey]
+            current_group_width = group_widths.get(gkey, group_width)
             # Calculate inner_nodes_height from group_height for use in component drawing
             inner_nodes_height = group_height - top_padding - label_height - between_label_and_nodes - bottom_padding
-            ET.SubElement(group_cell, "mxGeometry", attrib={"x": str(x_col), "y": str(group_top_y), "width": str(group_width), "height": str(group_height), "as": "geometry"})
+            ET.SubElement(group_cell, "mxGeometry", attrib={"x": str(x_col), "y": str(group_top_y), "width": str(current_group_width), "height": str(group_height), "as": "geometry"})
 
             # label cell：放在容器内顶部，明显可见，不会被节点遮挡（y 坐标相对于组容器）
             label_id = gen_id()
@@ -668,7 +705,7 @@ class ConnectionGraph:
             ET.SubElement(label_cell, "mxGeometry", attrib={
                 "x": str(12),
                 "y": str(top_padding),
-                "width": str(group_width - 24),
+                "width": str(current_group_width - 24),
                 "height": str(label_height),
                 "as": "geometry"
             })
@@ -702,7 +739,7 @@ class ConnectionGraph:
                     
                     # 计算列数和每列宽度
                     max_cols = max(len(row) for row in layout) if layout else 1
-                    col_width = max(40, (group_width - 24) // max_cols)
+                    col_width = max(40, (current_group_width - 24) // max_cols)
                     
                     for row_idx, row in enumerate(layout):
                         for col_idx, terminal_str in enumerate(row):
@@ -760,7 +797,7 @@ class ConnectionGraph:
 
                 comp_x = x_col + 12
                 comp_y = group_y_top + top_padding + label_height + between_label_and_nodes
-                comp_w = max(40, group_width - 24)
+                comp_w = max(40, current_group_width - 24)
                 comp_h = max(node_height, inner_nodes_height)
 
                 gfx = COMPONENT_GRAPHICS.get(comp_type_str)
@@ -1458,7 +1495,15 @@ class TerminalDataModel:
                             str_layout.append(str_row)
                         dg_layout_map[(cabinet.id, dgid)] = str_layout
 
-            g.to_drawio_xml(fp, title=title, component_types=comp_map, device_group_layouts=dg_layout_map)
+            # 构建 device_terminal_to_group 映射 (cabinet_id, terminal_name) -> device_group_id
+            device_term_to_group_map: Dict[Tuple[str,str], str] = {}
+            for cabinet in self.cabinets:
+                for terminal_name, device_group_id in cabinet.device_terminal_to_group.items():
+                    device_term_to_group_map[(cabinet.id, terminal_name)] = device_group_id
+
+            g.to_drawio_xml(fp, title=title, component_types=comp_map, 
+                          device_group_layouts=dg_layout_map,
+                          device_terminal_to_group_map=device_term_to_group_map)
             out_paths.append(fp)
         return out_paths
 
