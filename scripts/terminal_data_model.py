@@ -282,14 +282,31 @@ class ConnectionGraph:
 
         # 布局策略：基于组间连通关系进行逻辑布局（距离层级 -> 列；列内堆叠）
         # 先计算每个组的高度（与原来一致），用于列内堆叠
-        top_padding = 8
+        top_padding = 16
         label_height = 18
         between_label_and_nodes = 6
-        bottom_padding = 8
+        bottom_padding = 20
         group_heights: Dict[Tuple[str,str,str], int] = {}
         for gkey, nodes in sorted_groups:
             col_node_count = len(nodes)
-            inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
+            # For COMPONENT groups, check if we have actual graphic dimensions
+            if gkey[0] == "COMPONENT":
+                comp_cabinet = gkey[1]
+                comp_id = gkey[2] or ""
+                comp_type_str = None
+                if component_types:
+                    comp_type_str = component_types.get((comp_cabinet, comp_id))
+                comp_type_str = comp_type_str or comp_id or ""
+                gfx = COMPONENT_GRAPHICS.get(comp_type_str)
+                if gfx:
+                    # Use actual graphic height from COMPONENT_GRAPHICS
+                    g_h = int(gfx.get("height", node_height))
+                    inner_nodes_height = g_h
+                else:
+                    # Fallback to default calculation for text-based components
+                    inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
+            else:
+                inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
             group_heights[gkey] = top_padding + label_height + between_label_and_nodes + inner_nodes_height + bottom_padding
 
         # node -> gkey 映射（加速查找）
@@ -621,9 +638,10 @@ class ConnectionGraph:
             group_cell = ET.SubElement(root, "mxCell", id=gid, value="", style=group_style, vertex="1", parent="1")
 
             # layout: 为标签和节点留出空间 (与上面计算保持一致)
-            col_node_count = len(nodes)
-            inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
-            group_height = top_padding + label_height + between_label_and_nodes + inner_nodes_height + bottom_padding
+            # Use pre-calculated group_height to ensure consistency
+            group_height = group_heights[gkey]
+            # Calculate inner_nodes_height from group_height for use in component drawing
+            inner_nodes_height = group_height - top_padding - label_height - between_label_and_nodes - bottom_padding
             ET.SubElement(group_cell, "mxGeometry", attrib={"x": str(x_col), "y": str(group_top_y), "width": str(group_width), "height": str(group_height), "as": "geometry"})
 
             # label cell：放在容器内顶部，明显可见，不会被节点遮挡（y 坐标相对于组容器）
@@ -1339,7 +1357,8 @@ class TerminalDataModel:
 if __name__ == "__main__":
     # 示例用法
     # excel_fold_path = r"C:\Users\OhtoAi\Downloads\继电保护室保护图纸 解析成果"
-    excel_fold_path = r"C:\Users\OhtoAi\Downloads\小测试"
+    # excel_fold_path = r"C:\Users\OhtoAi\Downloads\小测试"
+    excel_fold_path = r"C:/Users/OhtoAi/Downloads/母线保护"
     # get all xlsx files in the folder, include subfolders
     excel_files = []
     for root, dirs, files in os.walk(excel_fold_path):
