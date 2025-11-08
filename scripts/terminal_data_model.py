@@ -1335,6 +1335,8 @@ class TerminalDataModel:
                 return
             if t.component_id:
                 terminals_by_component.setdefault((t.cabinet_id, t.component_id), []).append(t)
+            if t.device_group_id:
+                terminals_by_device_group.setdefault((t.cabinet_id, t.device_group_id), []).append(t)
 
         for cabinet in self.cabinets:
             for tb in cabinet.panel_terminal_blocks:
