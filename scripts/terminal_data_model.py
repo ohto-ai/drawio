@@ -175,6 +175,8 @@ class ConnectionGraph:
     node_order: Dict[str, int] = field(default_factory=dict)
     # connection_types: 保留每条边的连接类型（如"刀开关"），用于绘制中间节点
     connection_types: Dict[frozenset, Optional[str]] = field(default_factory=dict)
+    # connection_destinations: 保留每条边的目标端子（用于垂直对齐）
+    connection_destinations: Dict[frozenset, str] = field(default_factory=dict)
 
     def add_edge(self, a, b, reason: str, connection_type: Optional[str] = None):
         a_str = str(a)
@@ -192,6 +194,8 @@ class ConnectionGraph:
         # 存储连接类型（如果提供）
         if connection_type:
             self.connection_types[key] = connection_type
+            # 存储目标端子（互联终点，即 b）
+            self.connection_destinations[key] = b_str
     def set_node_order(self, node_str: str, order: Optional[int]):
         if order is None:
             return
@@ -248,10 +252,19 @@ class ConnectionGraph:
             for key, reasons in self.edges.items():
                 a_str, b_str = self.repr_map[key]
                 if a_str in comp_set and b_str in comp_set:
-                    # 获取连接类型（如果有）
+                    # 获取连接类型和目标端子（如果有）
                     conn_type = self.connection_types.get(key)
+                    dest = self.connection_destinations.get(key)
                     for reason in reasons:
-                        g.add_edge(a_str, b_str, reason, connection_type=conn_type)
+                        # 如果有目标端子信息，确保以正确的顺序添加边
+                        if dest:
+                            # 找出哪个是源，哪个是目标
+                            if a_str == dest:
+                                g.add_edge(b_str, a_str, reason, connection_type=conn_type)
+                            else:
+                                g.add_edge(a_str, b_str, reason, connection_type=conn_type)
+                        else:
+                            g.add_edge(a_str, b_str, reason, connection_type=conn_type)
             subgraphs.append(g)
         return subgraphs
 
@@ -772,11 +785,12 @@ class ConnectionGraph:
                             # 绘制圆形节点
                             circle_id = gen_id()
                             node_cell_ids[terminal_str] = circle_id
-                            # Store position for intermediate component placement
-                            node_positions[terminal_str] = (nx, ny)
+                            circle_size = max(4, node_height // 4)
+                            # Store position for intermediate component placement (center of the circle)
+                            circle_center_y = ny + node_height // 2
+                            node_positions[terminal_str] = (nx, circle_center_y)
                             circle_style = "shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
                             circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="", style=circle_style, vertex="1", parent=gid)
-                            circle_size = max(4, node_height // 4)
                             ET.SubElement(circle_cell, "mxGeometry", attrib={
                                 "x": str(nx - x_col),
                                 "y": str(ny - group_y_top + (node_height - circle_size)//2),
@@ -862,12 +876,13 @@ class ConnectionGraph:
                 label = nstr.split(":")[-1]
                 circle_id = gen_id()
                 node_cell_ids[nstr] = circle_id  # 边连接指向圆形节点 id
-                # Store position for intermediate component placement
-                node_positions[nstr] = (nx, ny)
-                circle_style = "shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
-                circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="", style=circle_style, vertex="1", parent=gid)
                 # 圆的大小取 node_height 的 1/4，至少为 4 像素以保证可见
                 circle_size = max(4, node_height // 4)
+                # Store position for intermediate component placement (center of the circle)
+                circle_center_y = ny + node_height // 2
+                node_positions[nstr] = (nx, circle_center_y)
+                circle_style = "shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
+                circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="", style=circle_style, vertex="1", parent=gid)
                 ET.SubElement(circle_cell, "mxGeometry", attrib={
                     "x": str(nx - x_col),
                     "y": str(ny - group_y_top + (node_height - circle_size)//2),  # 垂直居中于原高度行
@@ -903,8 +918,9 @@ class ConnectionGraph:
             node_cell_ids[w] = nid
             wire_index += 1
             wire_y = group_y_top + (wire_index - 1) * (node_height + node_gap)
-            # Store position for intermediate component placement
-            node_positions[w] = (wire_base_x, wire_y)
+            # Store position for intermediate component placement (center of the ellipse)
+            wire_center_y = wire_y + node_height // 2
+            node_positions[w] = (wire_base_x, wire_center_y)
             v = ET.SubElement(root, "mxCell", id=nid, value=escape(label),
                               style="shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#A67C00",
                               parent="1", vertex="1")
@@ -924,9 +940,10 @@ class ConnectionGraph:
                 standalone_index += 1
                 cx = 40
                 cy = 40 + standalone_index * (node_height + node_gap)
-                # Store position for intermediate component placement
-                node_positions[a_str] = (cx, cy)
                 circle_size = max(4, node_height // 4)
+                # Store position for intermediate component placement (center of the circle)
+                circle_center_y = cy + node_height // 2
+                node_positions[a_str] = (cx, circle_center_y)
                 circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="",
                                             style="shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000",
                                             parent="1", vertex="1")
@@ -943,9 +960,10 @@ class ConnectionGraph:
                 standalone_index += 1
                 cx = 160
                 cy = 40 + standalone_index * (node_height + node_gap)
-                # Store position for intermediate component placement
-                node_positions[b_str] = (cx, cy)
                 circle_size = max(4, node_height // 4)
+                # Store position for intermediate component placement (center of the circle)
+                circle_center_y = cy + node_height // 2
+                node_positions[b_str] = (cx, circle_center_y)
                 circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="",
                                             style="shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000",
                                             parent="1", vertex="1")
@@ -980,17 +998,47 @@ class ConnectionGraph:
                 
                 intermediate_id = gen_id()
                 
-                # 计算中间节点的位置（放在两个端子之间）
+                # 获取目标端子（互联终点）
+                dest_str = self.connection_destinations.get(key)
+                
+                # 计算中间节点的位置（放在两个端子之间，并与目标端子垂直对齐）
                 pos_a = node_positions.get(a_str)
                 pos_b = node_positions.get(b_str)
                 
-                if pos_a and pos_b:
-                    # 计算中点位置
+                if pos_a and pos_b and dest_str:
+                    # 确定哪个是目标端子
+                    pos_dest = node_positions.get(dest_str)
+                    
+                    if pos_dest:
+                        # 水平方向：放在两个端子中间
+                        mid_x = (pos_a[0] + pos_b[0]) // 2
+                        # 垂直方向：与目标端子对齐
+                        dest_y = pos_dest[1]
+                        
+                        comp_width = int(gfx.get("width", 75))
+                        comp_height = int(gfx.get("height", 20))
+                        
+                        # 调整位置：水平居中，垂直与目标端子对齐
+                        comp_x = mid_x - comp_width // 2
+                        comp_y = dest_y - comp_height // 2  # 使组件中心与目标端子对齐
+                        
+                        # Debug logging
+                        logger.debug(f"组件定位: dest={dest_str}, dest_y={dest_y}, comp_y={comp_y}, comp_height={comp_height}")
+                    else:
+                        # 如果找不到目标端子位置，回退到中点
+                        logger.warning(f"未找到目标端子 {dest_str} 的位置信息，使用中点布局")
+                        mid_x = (pos_a[0] + pos_b[0]) // 2
+                        mid_y = (pos_a[1] + pos_b[1]) // 2
+                        comp_width = int(gfx.get("width", 75))
+                        comp_height = int(gfx.get("height", 20))
+                        comp_x = mid_x - comp_width // 2
+                        comp_y = mid_y - comp_height // 2
+                elif pos_a and pos_b:
+                    # 没有目标端子信息，使用中点
                     mid_x = (pos_a[0] + pos_b[0]) // 2
                     mid_y = (pos_a[1] + pos_b[1]) // 2
                     comp_width = int(gfx.get("width", 75))
                     comp_height = int(gfx.get("height", 20))
-                    # 调整位置使组件中心对齐中点
                     comp_x = mid_x - comp_width // 2
                     comp_y = mid_y - comp_height // 2
                 else:
@@ -1004,7 +1052,7 @@ class ConnectionGraph:
                 comp_cell = ET.SubElement(root, "mxCell", id=intermediate_id, value=gfx.get("value", ""),
                                          style=gfx.get("style", ""), vertex="1", parent="1")
                 
-                if pos_a and pos_b:
+                if (pos_a and pos_b and dest_str and node_positions.get(dest_str)) or (pos_a and pos_b):
                     # 使用绝对位置
                     ET.SubElement(comp_cell, "mxGeometry", attrib={
                         "x": str(comp_x),
