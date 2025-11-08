@@ -15,6 +15,16 @@ logging.basicConfig(level=logging.DEBUG)
 
 # 预定义的 component 图形映射：类型名 -> mxCell style + 默认宽高/值
 # 只在能识别类型时使用，未识别则回退为文字标签
+# 
+# 装置组（Device Group）现在支持2D矩阵布局：
+# - 在Excel中，每行代表矩阵的一行，用分号分隔同行内的端子
+# - 空单元格用空字符串表示（如 ";term1" 表示第一列为空，第二列有端子）
+# - 示例：
+#   布局端子列：
+#     1n1x1;1n1x2  -> 第一行：[1n1x1, 1n1x2]
+#     1n1x3;1n1x4  -> 第二行：[1n1x3, 1n1x4]
+#     ;1n1x5       -> 第三行：[空, 1n1x5]
+#
 COMPONENT_GRAPHICS: Dict[str, Dict[str, object]] = {
     # 闭合开关（示例：开关闭合状态）
     "闭合开关": {
@@ -77,15 +87,19 @@ class BackendDeviceGroupInfo:
     device_id: str
     device_group_id: str
     terminal_refs: List['TerminalRef']
+    # 2D layout: List[List[Optional[TerminalRef]]]
+    # Each inner list represents a row, None represents an empty cell
+    terminal_layout: List[List[Optional['TerminalRef']]] = None
 
 @dataclass
 class TerminalRef:
     cabinet_id: str
     # 1. 前端面板是  terminal_block_id + terminal_name
-    # 2. 后端装置是  terminal_name
+    # 2. 后端装置是  device_group_id + terminal_name (device_group_id可选)
     # 3. 后端元件是  component_id + terminal_name
     terminal_block_id: Optional[str] = None
     component_id: Optional[str] = None
+    device_group_id: Optional[str] = None
     terminal_name: str = ""
     terminal_type: TerminalType = None
 
@@ -93,14 +107,17 @@ class TerminalRef:
         if self.terminal_type == TerminalType.FRONT_PANEL:
             return f"{self.cabinet_id}/@PANEL:{self.terminal_block_id}:{self.terminal_name}"
         elif self.terminal_type == TerminalType.BACKEND_DEVICE:
-            return f"{self.cabinet_id}/@DEVICE:{self.terminal_name}"
+            if self.device_group_id:
+                return f"{self.cabinet_id}/@DEVICE:{self.device_group_id}:{self.terminal_name}"
+            else:
+                return f"{self.cabinet_id}/@DEVICE:{self.terminal_name}"
         elif self.terminal_type == TerminalType.BACKEND_COMPONENT:
             return f"{self.cabinet_id}/@COMPONENT:{self.component_id}:{self.terminal_name}"
         else:
             return f"{self.cabinet_id}/@UNKNOWN/{self.terminal_name}"
 
     def __hash__(self):
-        return hash((self.cabinet_id, self.terminal_block_id, self.component_id, self.terminal_name, self.terminal_type))
+        return hash((self.cabinet_id, self.terminal_block_id, self.component_id, self.device_group_id, self.terminal_name, self.terminal_type))
 
 @dataclass
 class TerminalInfo:
@@ -233,7 +250,8 @@ class ConnectionGraph:
     def to_drawio_xml(self, file_path: str, title: Optional[str] = None,
                       group_gap: int = 80, group_width: int = 240,
                       node_width: int = 180, node_height: int = 36, node_gap: int = 8,
-                      component_types: Optional[Dict[Tuple[str, str], str]] = None):
+                      component_types: Optional[Dict[Tuple[str, str], str]] = None,
+                      device_group_layouts: Optional[Dict[Tuple[str, str], List[List[Optional[str]]]]] = None):
         """
         将当前 ConnectionGraph 导出为 draw.io (.drawio 即 xml) 文件。
         输出结构与示例保持一致：<mxfile><diagram><mxGraphModel>...</mxGraphModel></diagram></mxfile>
@@ -250,9 +268,14 @@ class ConnectionGraph:
                 if m:
                     return ("PANEL", m.group(1), m.group(2))
             if "/@DEVICE:" in node_str:
+                # Try with device_group_id first (3 parts)
                 m = re.match(r"([^/]+)/@DEVICE:([^:]+):(.+)", node_str)
                 if m:
                     return ("DEVICE", m.group(1), m.group(2))
+                # Fallback to no device_group_id (2 parts) - for backward compatibility
+                m = re.match(r"([^/]+)/@DEVICE:(.+)", node_str)
+                if m:
+                    return ("DEVICE", m.group(1), "")
             if "/@COMPONENT:" in node_str:
                 m = re.match(r"([^/]+)/@COMPONENT:([^:]+):(.+)", node_str)
                 if m:
@@ -670,6 +693,62 @@ class ConnectionGraph:
                     return (2, 0, 0, label)
 
             ordered_nodes = sorted(nodes, key=sort_key)
+            
+            # 如果这是 DEVICE 组且有布局信息，则按矩阵方式绘制端子
+            if gkey[0] == "DEVICE" and device_group_layouts:
+                device_cabinet = gkey[1]
+                device_group_id = gkey[2]
+                layout_key = (device_cabinet, device_group_id)
+                layout = device_group_layouts.get(layout_key)
+                
+                if layout:
+                    # 使用矩阵布局绘制
+                    start_x = x_col + 12
+                    start_y = group_y_top + top_padding + label_height + between_label_and_nodes
+                    
+                    # 计算列数和每列宽度
+                    max_cols = max(len(row) for row in layout) if layout else 1
+                    col_width = max(40, (group_width - 24) // max_cols)
+                    
+                    for row_idx, row in enumerate(layout):
+                        for col_idx, terminal_str in enumerate(row):
+                            if terminal_str is None or not terminal_str:
+                                # 空单元格，跳过
+                                continue
+                            
+                            # 计算位置
+                            nx = start_x + col_idx * col_width
+                            ny = start_y + row_idx * (node_height + node_gap)
+                            
+                            # 绘制圆形节点
+                            circle_id = gen_id()
+                            node_cell_ids[terminal_str] = circle_id
+                            circle_style = "shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
+                            circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="", style=circle_style, vertex="1", parent=gid)
+                            circle_size = max(4, node_height // 4)
+                            ET.SubElement(circle_cell, "mxGeometry", attrib={
+                                "x": str(nx - x_col),
+                                "y": str(ny - group_y_top + (node_height - circle_size)//2),
+                                "width": str(circle_size),
+                                "height": str(circle_size),
+                                "as": "geometry"
+                            })
+                            
+                            # 绘制文本标签
+                            label = terminal_str.split(":")[-1]
+                            text_id = gen_id()
+                            text_style = "text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none"
+                            text_cell = ET.SubElement(root, "mxCell", id=text_id, value=escape(label), style=text_style, vertex="1", parent=gid)
+                            ET.SubElement(text_cell, "mxGeometry", attrib={
+                                "x": str((nx - x_col) + circle_size + 6),
+                                "y": str(ny - group_y_top),
+                                "width": str(max(10, col_width - circle_size - 12)),
+                                "height": str(node_height),
+                                "as": "geometry"
+                            })
+                    # 跳过默认的端子绘制
+                    continue
+            
             # 如果这是 COMPONENT 组，则不绘制组内各个端子，而是绘制一个表示整个 component 的块，
             # 并把组内所有端子映射到该块的 cell id（外部连线直接连到块）
             if gkey[0] == "COMPONENT":
@@ -965,14 +1044,19 @@ class TerminalDataModel:
                     )
                     internal_connection_terminal_refs.append(ic_terminal_ref)
                 else:
-                    # 自己单独一组
-                    # 如果小写abcn结尾
-                    # if ic.endswith(('a', 'b', 'c', 'n')):
-                    #     ic_device_group_id = ic[:-1]
-                    # else:
-                    #     ic_device_group_id = ic
+                    # Try to find device_group_id from existing device groups
+                    device_group_id = None
+                    for dgid, dginfo in cabinet.backend_device_groups.items():
+                        for tref in dginfo.terminal_refs:
+                            if tref.terminal_name == ic:
+                                device_group_id = dgid
+                                break
+                        if device_group_id:
+                            break
+                    
                     ic_terminal_ref = TerminalRef(
                         cabinet_id=cabinet_id,
+                        device_group_id=device_group_id,
                         terminal_name=ic,
                         terminal_type=TerminalType.BACKEND_DEVICE
                     )
@@ -1026,8 +1110,19 @@ class TerminalDataModel:
                         terminal_type=TerminalType.BACKEND_COMPONENT
                     )
                 else:
+                    # Try to find device_group_id from existing device groups
+                    device_group_id = None
+                    for dgid, dginfo in cabinet.backend_device_groups.items():
+                        for tref in dginfo.terminal_refs:
+                            if tref.terminal_name == terminal_str:
+                                device_group_id = dgid
+                                break
+                        if device_group_id:
+                            break
+                    
                     return TerminalRef(
                         cabinet_id=cabinet_id,
+                        device_group_id=device_group_id,
                         terminal_name=terminal_str,
                         terminal_type=TerminalType.BACKEND_DEVICE
                     )
@@ -1046,10 +1141,16 @@ class TerminalDataModel:
         """
         处理柜内装置布局图, 描述柜内端子所在的组以及每组内的行/列布局。
         表格列：设备编号  装置编号  装置组编号  布局端子
-        每行代表该装置组的一行布局，布局端子内以 ';' 或 ',' 等分隔同一行内的端子。
-        例如两行:
-          61LH   61LH   61LHa;61LHb
-          61LH   61LH   61LHc;61LHn
+        每行代表该装置组的一行布局，布局端子内以 ';' 分隔同一行内的端子。
+        空单元格用空字符串表示（连续分号或开头分号）。
+        例如:
+          1n1x1;1n1x2  -> 第一行两列
+          1n1x3;1n1x4  -> 第二行两列
+          
+          1n1x1;1n1x2  -> 第一行两列
+          ;1n1x3       -> 第二行第一列空，第二列有端子
+          ;1n1x4       -> 第三行第一列空，第二列有端子
+          
             设备编号	装置编号	装置组编号	布局端子
             1ABA03GG003	61LH	61LH	61LHa;61LHb
             1ABA03GG003	61LH	61LH	61LHc;61LHn
@@ -1072,8 +1173,7 @@ class TerminalDataModel:
             device_id = TerminalDataModel.safe_str(row.get("装置编号", ""))
             device_group_id = TerminalDataModel.safe_str(row.get("装置组编号", "")) or device_id
             layout_terminals_raw = TerminalDataModel.safe_str(row.get("布局端子", ""))
-            terminal_names = TerminalDataModel.split_to_list(layout_terminals_raw)
-
+            
             if not device_group_id:
                 logger.warning(f"{description}:{index}: 装置组编号为空，使用装置编号或跳过。")
                 continue
@@ -1085,19 +1185,33 @@ class TerminalDataModel:
                 dg_info.device_id = device_id
                 dg_info.device_group_id = device_group_id
                 dg_info.terminal_refs = []
+                dg_info.terminal_layout = []  # 初始化2D布局
                 cabinet.backend_device_groups[device_group_id] = dg_info
 
-            # 将布局端子解析为 TerminalRef 列表并加入 dg_info
-            for tn in terminal_names:
-                if not tn:
-                    continue
-                tref = TerminalRef(
-                    cabinet_id=cabinet_id,
-                    terminal_name=tn.strip(),
-                    terminal_type=TerminalType.BACKEND_DEVICE
-                )
-                dg_info.terminal_refs.append(tref)
-            logger.debug(f"{description}:{index}: 读取柜 {cabinet_id} 装置组 {device_group_id} 布局端子: {terminal_names}")
+            # 解析一行布局端子，以分号分隔，保留空单元格
+            # 使用split而不是split_to_list，以保留空字符串
+            terminal_names_in_row = layout_terminals_raw.split(';')
+            row_refs = []
+            for tn in terminal_names_in_row:
+                tn = tn.strip()
+                if tn:
+                    tref = TerminalRef(
+                        cabinet_id=cabinet_id,
+                        device_group_id=device_group_id,
+                        terminal_name=tn,
+                        terminal_type=TerminalType.BACKEND_DEVICE
+                    )
+                    row_refs.append(tref)
+                    dg_info.terminal_refs.append(tref)  # 同时保留在flat list中以兼容现有代码
+                else:
+                    # 空单元格
+                    row_refs.append(None)
+            
+            # 添加这一行到2D布局
+            if row_refs:  # 只有在有内容时才添加行
+                dg_info.terminal_layout.append(row_refs)
+                
+            logger.debug(f"{description}:{index}: 读取柜 {cabinet_id} 装置组 {device_group_id} 布局端子行: {[tn for tn in terminal_names_in_row]}")
 
 
     def _process_backend_components_dataframe(self, df: pd.DataFrame, description: str =""):
@@ -1349,8 +1463,22 @@ class TerminalDataModel:
             for cabinet in self.cabinets:
                 for cid, info in cabinet.backend_components.items():
                     comp_map[(cabinet.id, cid)] = getattr(info, "component_type", "") or ""
+            
+            # 构建 device_group_layout 映射 (cabinet_id, device_group_id) -> List[List[Optional[str]]]
+            # 将 TerminalRef 转换为字符串以便在绘图代码中使用
+            dg_layout_map: Dict[Tuple[str,str], List[List[Optional[str]]]] = {}
+            for cabinet in self.cabinets:
+                for dgid, dginfo in cabinet.backend_device_groups.items():
+                    layout = getattr(dginfo, "terminal_layout", None)
+                    if layout:
+                        # 转换 TerminalRef 为字符串
+                        str_layout = []
+                        for row in layout:
+                            str_row = [str(tref) if tref else None for tref in row]
+                            str_layout.append(str_row)
+                        dg_layout_map[(cabinet.id, dgid)] = str_layout
 
-            g.to_drawio_xml(fp, title=title, component_types=comp_map)
+            g.to_drawio_xml(fp, title=title, component_types=comp_map, device_group_layouts=dg_layout_map)
             out_paths.append(fp)
         return out_paths
 
