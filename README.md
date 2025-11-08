@@ -277,7 +277,63 @@ highlightManager.refresh();
 
 ## Python工具脚本
 
-本项目包含四个强大的Python工具脚本，用于网络拓扑分析和可视化。
+本项目包含多个强大的Python工具脚本，用于网络拓扑分析和可视化。
+
+### terminal_data_model.py - 端子数据模型工具
+
+从Excel文件加载端子连接数据并生成Draw.io格式的接线图。支持前端面板端子、后端装置和元件的可视化。
+
+**新特性 (v1.0):**
+- ✨ **互联类型支持**: 可在后端互联数据中指定连接类型（如"刀开关"、"LED"等）
+- 🔧 **自动中间节点**: 当指定互联类型时，自动在连接中插入相应的图形元件
+- 📊 **矩阵布局**: 支持装置组端子的二维矩阵布局
+- 🎨 **丰富图形库**: 内置多种电气元件图形（开关、继电器、LED等）
+
+**用法:**
+```bash
+python3 scripts/terminal_data_model.py
+# 或在代码中使用
+from terminal_data_model import TerminalDataModel
+model = TerminalDataModel()
+model.load_xlsxs(['data.xlsx'])
+model.export_drawio_groups('output_dir')
+```
+
+**Excel数据表格式:**
+
+1. **互联数据** (支持互联类型):
+   - 设备编号: 机柜/设备标识
+   - 互联起点: 连接起始端子
+   - 互联终点: 连接目标端子
+   - **互联类型** (新): 连接类型，如"刀开关"、"闭合开关"、"LED"等
+
+2. **装置布局**:
+   - 设备编号, 装置编号, 装置组编号, 布局端子
+
+3. **元件数据**:
+   - 设备编号, 元件编号, 元件类型, 元件端子
+
+**支持的互联类型:**
+- 刀开关 (knife switch)
+- 闭合开关 (closed switch)
+- 双刀开关 (double-pole switch)
+- 压板 (pressure plate)
+- LED (indicator light)
+- *可通过修改 `COMPONENT_GRAPHICS` 添加自定义类型*
+
+**示例:**
+```bash
+# 使用示例数据
+python3 scripts/test_connection_types.py
+
+# 查看示例文件
+ls scripts/examples/connection_types_example.xlsx
+
+# 生成的draw.io文件
+ls scripts/examples/output/
+```
+
+详细文档请参考: [CONNECTION_TYPES.md](scripts/CONNECTION_TYPES.md)
 
 ### extract_netlist.py - 网表提取工具
 
@@ -494,6 +550,7 @@ drawio/
 │   ├── server.py                # 主服务器文件
 │   └── saved_files/             # 服务器保存的图表文件
 ├── scripts/                      # Python工具脚本
+│   ├── terminal_data_model.py   # 端子数据模型与接线图生成
 │   ├── extract_netlist.py       # 网表提取
 │   ├── detect_cycles.py         # 环路检测
 │   ├── gen_graph.py             # 图表生成
@@ -543,6 +600,7 @@ drawio/
 | 脚本 | 功能 | 主要参数 |
 |------|------|----------|
 | `server/server.py` | HTTP服务器 | `--host`, `--port`, `--static-dir`, `--save-dir` |
+| `terminal_data_model.py` | 端子数据模型与接线图 | Excel文件路径 |
 | `extract_netlist.py` | 提取网表数据 | `input_dir`, `-o output` |
 | `detect_cycles.py` | 检测网络环路 | `input_dir`, `-o output` |
 | `gen_graph.py` | 生成图表XML | 无参数 |
