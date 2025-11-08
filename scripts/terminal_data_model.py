@@ -70,6 +70,8 @@ class Cabinet:
     # device_groups_layout: Dict[str, List[List[str]]] = field(default_factory=dict)
     backend_components: Dict[str, 'BackendComponentInfo'] = field(default_factory=dict)
     backend_device_groups: Dict[str, 'BackendDeviceGroupInfo'] = field(default_factory=dict)
+    # 设备端子到设备组的映射: terminal_name -> device_group_id
+    device_terminal_to_group: Dict[str, str] = field(default_factory=dict)
     
 
 
@@ -95,11 +97,10 @@ class BackendDeviceGroupInfo:
 class TerminalRef:
     cabinet_id: str
     # 1. 前端面板是  terminal_block_id + terminal_name
-    # 2. 后端装置是  device_group_id + terminal_name (device_group_id可选)
+    # 2. 后端装置是  terminal_name (device_group_id通过映射查找，不是ID的一部分)
     # 3. 后端元件是  component_id + terminal_name
     terminal_block_id: Optional[str] = None
     component_id: Optional[str] = None
-    device_group_id: Optional[str] = None
     terminal_name: str = ""
     terminal_type: TerminalType = None
 
@@ -107,17 +108,14 @@ class TerminalRef:
         if self.terminal_type == TerminalType.FRONT_PANEL:
             return f"{self.cabinet_id}/@PANEL:{self.terminal_block_id}:{self.terminal_name}"
         elif self.terminal_type == TerminalType.BACKEND_DEVICE:
-            if self.device_group_id:
-                return f"{self.cabinet_id}/@DEVICE:{self.device_group_id}:{self.terminal_name}"
-            else:
-                return f"{self.cabinet_id}/@DEVICE:{self.terminal_name}"
+            return f"{self.cabinet_id}/@DEVICE:{self.terminal_name}"
         elif self.terminal_type == TerminalType.BACKEND_COMPONENT:
             return f"{self.cabinet_id}/@COMPONENT:{self.component_id}:{self.terminal_name}"
         else:
             return f"{self.cabinet_id}/@UNKNOWN/{self.terminal_name}"
 
     def __hash__(self):
-        return hash((self.cabinet_id, self.terminal_block_id, self.component_id, self.device_group_id, self.terminal_name, self.terminal_type))
+        return hash((self.cabinet_id, self.terminal_block_id, self.component_id, self.terminal_name, self.terminal_type))
 
 @dataclass
 class TerminalInfo:
@@ -268,11 +266,7 @@ class ConnectionGraph:
                 if m:
                     return ("PANEL", m.group(1), m.group(2))
             if "/@DEVICE:" in node_str:
-                # Try with device_group_id first (3 parts)
-                m = re.match(r"([^/]+)/@DEVICE:([^:]+):(.+)", node_str)
-                if m:
-                    return ("DEVICE", m.group(1), m.group(2))
-                # Fallback to no device_group_id (2 parts) - for backward compatibility
+                # New format: CAB1/@DEVICE:terminal_name (no device_group_id in the identifier)
                 m = re.match(r"([^/]+)/@DEVICE:(.+)", node_str)
                 if m:
                     return ("DEVICE", m.group(1), "")
@@ -1044,19 +1038,9 @@ class TerminalDataModel:
                     )
                     internal_connection_terminal_refs.append(ic_terminal_ref)
                 else:
-                    # Try to find device_group_id from existing device groups
-                    device_group_id = None
-                    for dgid, dginfo in cabinet.backend_device_groups.items():
-                        for tref in dginfo.terminal_refs:
-                            if tref.terminal_name == ic:
-                                device_group_id = dgid
-                                break
-                        if device_group_id:
-                            break
-                    
+                    # 后端装置端子，不再需要查找device_group_id（会在build_connection_graph中通过映射查找）
                     ic_terminal_ref = TerminalRef(
                         cabinet_id=cabinet_id,
-                        device_group_id=device_group_id,
                         terminal_name=ic,
                         terminal_type=TerminalType.BACKEND_DEVICE
                     )
@@ -1110,19 +1094,9 @@ class TerminalDataModel:
                         terminal_type=TerminalType.BACKEND_COMPONENT
                     )
                 else:
-                    # Try to find device_group_id from existing device groups
-                    device_group_id = None
-                    for dgid, dginfo in cabinet.backend_device_groups.items():
-                        for tref in dginfo.terminal_refs:
-                            if tref.terminal_name == terminal_str:
-                                device_group_id = dgid
-                                break
-                        if device_group_id:
-                            break
-                    
+                    # 后端装置端子，不再需要查找device_group_id（会在build_connection_graph中通过映射查找）
                     return TerminalRef(
                         cabinet_id=cabinet_id,
-                        device_group_id=device_group_id,
                         terminal_name=terminal_str,
                         terminal_type=TerminalType.BACKEND_DEVICE
                     )
@@ -1197,12 +1171,13 @@ class TerminalDataModel:
                 if tn:
                     tref = TerminalRef(
                         cabinet_id=cabinet_id,
-                        device_group_id=device_group_id,
                         terminal_name=tn,
                         terminal_type=TerminalType.BACKEND_DEVICE
                     )
                     row_refs.append(tref)
                     dg_info.terminal_refs.append(tref)  # 同时保留在flat list中以兼容现有代码
+                    # 更新设备端子到设备组的映射
+                    cabinet.device_terminal_to_group[tn] = device_group_id
                 else:
                     # 空单元格
                     row_refs.append(None)
@@ -1330,25 +1305,30 @@ class TerminalDataModel:
         terminals_by_component: Dict[Tuple[str, str], List[TerminalRef]] = {}
         terminals_by_device_group: Dict[Tuple[str, str], List[TerminalRef]] = {}
 
-        def collect_terminal(t: TerminalRef):
+        def collect_terminal(t: TerminalRef, cabinet: Cabinet):
             if t is None:
                 return
             if t.component_id:
                 terminals_by_component.setdefault((t.cabinet_id, t.component_id), []).append(t)
+            # 通过映射查找device_group_id
+            if t.terminal_type == TerminalType.BACKEND_DEVICE:
+                device_group_id = cabinet.device_terminal_to_group.get(t.terminal_name)
+                if device_group_id:
+                    terminals_by_device_group.setdefault((t.cabinet_id, device_group_id), []).append(t)
 
         for cabinet in self.cabinets:
             for tb in cabinet.panel_terminal_blocks:
                 for terminal_ref, terminal_info in tb.terminal_infos.items():
-                    collect_terminal(terminal_ref)
+                    collect_terminal(terminal_ref, cabinet)
                     if terminal_info.direct_connect_terminal_refs:
                         for dc in terminal_info.direct_connect_terminal_refs:
-                            collect_terminal(dc)
+                            collect_terminal(dc, cabinet)
                     for ic in terminal_info.internal_connection_terminal_refs:
-                        collect_terminal(ic)
+                        collect_terminal(ic, cabinet)
             for bc in cabinet.backend_connections:
-                collect_terminal(bc.from_terminal)
-                collect_terminal(bc.to_terminal)
-            # 从 cabinet.backend_device_groups 中收集 device_group terminals
+                collect_terminal(bc.from_terminal, cabinet)
+                collect_terminal(bc.to_terminal, cabinet)
+            # 从 cabinet.backend_device_groups 中收集 device_group terminals（作为备用，虽然应该已经在映射中了）
             for dgid, dginfo in cabinet.backend_device_groups.items():
                 key = (cabinet.id, dgid)
                 lst = terminals_by_device_group.setdefault(key, [])
@@ -1420,7 +1400,7 @@ class TerminalDataModel:
                 if m:
                     tb_ids.add(m.group(1))
                     continue
-                m = re.match(r"[^/]+/@DEVICE:([^']+)'", node)
+                m = re.match(r"[^/]+/@DEVICE:(.+)", node)
                 if m:
                     dg_ids.add(m.group(1))
                     continue
@@ -1506,3 +1486,4 @@ if __name__ == "__main__":
             print(e)
 
     model.export_drawio_groups(r"output_graphs")
+# temporary
