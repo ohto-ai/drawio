@@ -134,6 +134,7 @@ class BackendConnection:
     """
     from_terminal: TerminalRef
     to_terminal: TerminalRef
+    connection_type: Optional[str] = None  # 互联类型，如"刀开关"等
 
 
 @dataclass
@@ -164,8 +165,10 @@ class ConnectionGraph:
     virtual_groups: List[Set[str]] = field(default_factory=list)
     # node_order: 保留每个端子的 order_in_terminal_block 值（用于按原顺序绘制）
     node_order: Dict[str, int] = field(default_factory=dict)
+    # connection_types: 保留每条边的连接类型（如"刀开关"），用于绘制中间节点
+    connection_types: Dict[frozenset, Optional[str]] = field(default_factory=dict)
 
-    def add_edge(self, a, b, reason: str):
+    def add_edge(self, a, b, reason: str, connection_type: Optional[str] = None):
         a_str = str(a)
         b_str = str(b)
         if a_str == b_str:
@@ -178,6 +181,9 @@ class ConnectionGraph:
         self.edges[key].add(reason)
         self.nodes.add(a_str)
         self.nodes.add(b_str)
+        # 存储连接类型（如果提供）
+        if connection_type:
+            self.connection_types[key] = connection_type
     def set_node_order(self, node_str: str, order: Optional[int]):
         if order is None:
             return
@@ -234,8 +240,10 @@ class ConnectionGraph:
             for key, reasons in self.edges.items():
                 a_str, b_str = self.repr_map[key]
                 if a_str in comp_set and b_str in comp_set:
+                    # 获取连接类型（如果有）
+                    conn_type = self.connection_types.get(key)
                     for reason in reasons:
-                        g.add_edge(a_str, b_str, reason)
+                        g.add_edge(a_str, b_str, reason, connection_type=conn_type)
             subgraphs.append(g)
         return subgraphs
 
@@ -924,11 +932,51 @@ class ConnectionGraph:
                                           parent="1", vertex="1")
                 ET.SubElement(text_cell, "mxGeometry", attrib={"x": str(cx + circle_size + 6), "y": str(cy), "width": str(max(10, node_width - circle_size - 12)), "height": str(node_height), "as": "geometry"})
 
-            edge_id = gen_id()
+            # 检查是否有连接类型（如"刀开关"）
+            conn_type = self.connection_types.get(key)
             reason_label = ""  # 保持连线上不显示长文本，避免遮挡；如需显示可改为 ",".join(sorted(reasons))
-            edge_attrib = {"id": edge_id, "edge":"1", "parent":"1", "source": node_cell_ids[a_str], "target": node_cell_ids[b_str], "value": escape(reason_label), "style": edge_style}
-            edge_el = ET.SubElement(root, "mxCell", **edge_attrib)
-            ET.SubElement(edge_el, "mxGeometry", attrib={"relative": "1", "as": "geometry"})
+            
+            if conn_type and conn_type in COMPONENT_GRAPHICS:
+                # 创建中间节点（使用COMPONENT_GRAPHICS中定义的图形）
+                gfx = COMPONENT_GRAPHICS[conn_type]
+                intermediate_id = gen_id()
+                
+                # 创建中间节点（无名的元件节点）
+                comp_cell = ET.SubElement(root, "mxCell", id=intermediate_id, value=gfx.get("value", ""),
+                                         style=gfx.get("style", ""), vertex="1", parent="1")
+                # 使用相对位置（draw.io会自动调整）或固定位置
+                # 这里我们不设置固定位置，让draw.io自动布局，只设置尺寸
+                ET.SubElement(comp_cell, "mxGeometry", attrib={
+                    "x": "0",  # 相对位置，draw.io会自动调整
+                    "y": "0",
+                    "width": str(int(gfx.get("width", 75))),
+                    "height": str(int(gfx.get("height", 20))),
+                    "as": "geometry",
+                    "relative": "1"  # 使用相对定位
+                })
+                
+                # 创建两条边：a -> intermediate 和 intermediate -> b
+                edge_id1 = gen_id()
+                edge_attrib1 = {"id": edge_id1, "edge":"1", "parent":"1", 
+                               "source": node_cell_ids[a_str], "target": intermediate_id, 
+                               "value": "", "style": edge_style}
+                edge_el1 = ET.SubElement(root, "mxCell", **edge_attrib1)
+                ET.SubElement(edge_el1, "mxGeometry", attrib={"relative": "1", "as": "geometry"})
+                
+                edge_id2 = gen_id()
+                edge_attrib2 = {"id": edge_id2, "edge":"1", "parent":"1", 
+                               "source": intermediate_id, "target": node_cell_ids[b_str], 
+                               "value": "", "style": edge_style}
+                edge_el2 = ET.SubElement(root, "mxCell", **edge_attrib2)
+                ET.SubElement(edge_el2, "mxGeometry", attrib={"relative": "1", "as": "geometry"})
+            else:
+                # 默认行为：直接连线
+                edge_id = gen_id()
+                edge_attrib = {"id": edge_id, "edge":"1", "parent":"1", 
+                              "source": node_cell_ids[a_str], "target": node_cell_ids[b_str], 
+                              "value": escape(reason_label), "style": edge_style}
+                edge_el = ET.SubElement(root, "mxCell", **edge_attrib)
+                ET.SubElement(edge_el, "mxGeometry", attrib={"relative": "1", "as": "geometry"})
 
         # write file
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -1099,9 +1147,9 @@ class TerminalDataModel:
         """
         处理后端装置互联数据
         示例Excel内容格式:
-            设备编号	互联起点	互联终点
-            1ABA03GG003	61LHn	1DK:1
-            1ABA03GG003	1DK:1	61LHNa
+            设备编号	互联起点	互联终点	互联类型
+            1ABA03GG003	61LHn	1DK:1	
+            1ABA03GG003	1DK:1	61LHNa	刀开关
         """
         for index, row in df.iterrows():
             cabinet_id = TerminalDataModel.safe_str(row.get("设备编号", ""))
@@ -1118,6 +1166,11 @@ class TerminalDataModel:
             if not from_terminal_str or not to_terminal_str:
                 logger.warning(f"{description}:{index}: 警告: 互联起点或终点为空，跳过该行数据。")
                 continue
+
+            # 读取互联类型列，默认为空（直接连线）
+            connection_type = TerminalDataModel.safe_str(row.get("互联类型", ""))
+            if not connection_type:
+                connection_type = None
 
             def parse_terminal_ref(terminal_str: str) -> TerminalRef:
                 if ':' in terminal_str:
@@ -1143,7 +1196,8 @@ class TerminalDataModel:
 
             backend_connection = BackendConnection(
                 from_terminal=from_terminal_ref,
-                to_terminal=to_terminal_ref
+                to_terminal=to_terminal_ref,
+                connection_type=connection_type
             )
             cabinet.backend_connections.append(backend_connection)
 
@@ -1336,7 +1390,7 @@ class TerminalDataModel:
                             pass
             # 4: cabinet backend_connections
             for bc in cabinet.backend_connections:
-                graph.add_edge(bc.from_terminal, bc.to_terminal, "backend_connection")
+                graph.add_edge(bc.from_terminal, bc.to_terminal, "backend_connection", connection_type=bc.connection_type)
 
         # 5 & 6: group by component_id/device_group_id 并将组内所有端子两两连接（或连到组代表）
         terminals_by_component: Dict[Tuple[str, str], List[TerminalRef]] = {}
