@@ -282,10 +282,10 @@ class ConnectionGraph:
 
         # 布局策略：基于组间连通关系进行逻辑布局（距离层级 -> 列；列内堆叠）
         # 先计算每个组的高度（与原来一致），用于列内堆叠
-        top_padding = 8
+        top_padding = 16
         label_height = 18
         between_label_and_nodes = 6
-        bottom_padding = 8
+        bottom_padding = 20
         group_heights: Dict[Tuple[str,str,str], int] = {}
         for gkey, nodes in sorted_groups:
             col_node_count = len(nodes)
