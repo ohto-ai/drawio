@@ -119,6 +119,7 @@ class BackendConnection:
     """
     from_terminal: TerminalRef
     to_terminal: TerminalRef
+    connection_type: Optional[str] = None  # 互联类型，如"刀开关"等，默认为空表示直接连线
 
 
 @dataclass
@@ -994,9 +995,9 @@ class TerminalDataModel:
         """
         处理后端装置互联数据
         示例Excel内容格式:
-            设备编号	互联起点	互联终点
-            1ABA03GG003	61LHn	1DK:1
-            1ABA03GG003	1DK:1	61LHNa
+            设备编号	互联起点	互联终点	互联类型
+            1ABA03GG003	61LHn	1DK:1	
+            1ABA03GG003	1DK:1	61LHNa	刀开关
         """
         for index, row in df.iterrows():
             cabinet_id = TerminalDataModel.safe_str(row.get("设备编号", ""))
@@ -1013,6 +1014,11 @@ class TerminalDataModel:
             if not from_terminal_str or not to_terminal_str:
                 logger.warning(f"{description}:{index}: 警告: 互联起点或终点为空，跳过该行数据。")
                 continue
+
+            # 读取互联类型，默认为空
+            connection_type = TerminalDataModel.safe_str(row.get("互联类型", ""))
+            if not connection_type:
+                connection_type = None
 
             def parse_terminal_ref(terminal_str: str) -> TerminalRef:
                 if ':' in terminal_str:
@@ -1037,7 +1043,8 @@ class TerminalDataModel:
 
             backend_connection = BackendConnection(
                 from_terminal=from_terminal_ref,
-                to_terminal=to_terminal_ref
+                to_terminal=to_terminal_ref,
+                connection_type=connection_type
             )
             cabinet.backend_connections.append(backend_connection)
 
@@ -1209,8 +1216,33 @@ class TerminalDataModel:
                             # 不创建到 GLOBAL_WIRE 的边，避免把仅有回路号的端子错误合并
                             pass
             # 4: cabinet backend_connections
+            # 支持互联类型：若指定了connection_type，则创建中间节点
             for bc in cabinet.backend_connections:
-                graph.add_edge(bc.from_terminal, bc.to_terminal, "backend_connection")
+                if bc.connection_type:
+                    # 创建一个中间组件节点
+                    # 为保证唯一性，使用格式: cabinet_id/@INTERMEDIATE_COMPONENT:connection_type:index
+                    intermediate_component_id = f"_CONN_{bc.connection_type}_{id(bc)}"
+                    intermediate_ref = TerminalRef(
+                        cabinet_id=cabinet.id,
+                        component_id=intermediate_component_id,
+                        terminal_name="",  # 中间节点不需要具体端子名
+                        terminal_type=TerminalType.BACKEND_COMPONENT
+                    )
+                    
+                    # 将中间节点添加到 cabinet.backend_components（如果不存在）
+                    if intermediate_component_id not in cabinet.backend_components:
+                        info = BackendComponentInfo()
+                        info.component_id = intermediate_component_id
+                        info.component_type = bc.connection_type
+                        info.terminal_refs = []
+                        cabinet.backend_components[intermediate_component_id] = info
+                    
+                    # 创建两条边: from -> intermediate, intermediate -> to
+                    graph.add_edge(bc.from_terminal, intermediate_ref, "backend_connection_with_component")
+                    graph.add_edge(intermediate_ref, bc.to_terminal, "backend_connection_with_component")
+                else:
+                    # 默认行为：直接连接
+                    graph.add_edge(bc.from_terminal, bc.to_terminal, "backend_connection")
 
         # 5 & 6: group by component_id/device_group_id 并将组内所有端子两两连接（或连到组代表）
         terminals_by_component: Dict[Tuple[str, str], List[TerminalRef]] = {}
