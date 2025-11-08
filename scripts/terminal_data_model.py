@@ -30,6 +30,22 @@ COMPONENT_GRAPHICS: Dict[str, Dict[str, object]] = {
         "height": 20,
         "value": ""
     },
+    "双刀开关": {
+        "style": "html=1;verticalAlign=top;shape=mxgraph.electrical.electro-mechanical.dpst2;elSwitchState=off;",
+        "width": 75,
+        "height": 40,
+    },
+    "压板": {
+        "style": "shape=image;verticalLabelPosition=bottom;labelBackgroundColor=default;verticalAlign=top;aspect=fixed;imageAspect=0;editableCssRules=.*;image=data:image/svg+xml,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiBzdHlsZT0iYmFja2dyb3VuZDogdHJhbnNwYXJlbnQ7IGJhY2tncm91bmQtY29sb3I6IHRyYW5zcGFyZW50OyBjb2xvci1zY2hlbWU6IGxpZ2h0IGRhcms7IiB2ZXJzaW9uPSIxLjEiIHdpZHRoPSI2MCIgaGVpZ2h0PSIyMCIgdmlld0JveD0iMSAwLjUgNjAgMjAiPiYjeGE7ICAgIDxkZWZzLz4mI3hhOyAgICA8Zz4mI3hhOyAgICAgICAgPGcgZGF0YS1jZWxsLWlkPSIwIj4mI3hhOyAgICAgICAgICAgIDxnIGRhdGEtY2VsbC1pZD0iMSI+JiN4YTsgICAgICAgICAgICAgICAgPGcgZGF0YS1jZWxsLWlkPSI5N21DNmdrUEpnZTR6V3JraEVCRy0xIj4mI3hhOyAgICAgICAgICAgICAgICAgICAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMC41LDAuNSkiPiYjeGE7ICAgICAgICAgICAgICAgICAgICAgICAgPGVsbGlwc2UgY3g9IjEwLjUiIGN5PSIxMCIgcng9IjEwIiByeT0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMDAwMCIgcG9pbnRlci1ldmVudHM9ImFsbCIgc3R5bGU9InN0cm9rZTogbGlnaHQtZGFyayhyZ2IoMCwgMCwgMCksIHJnYigyNTUsIDI1NSwgMjU1KSk7Ii8+JiN4YTsgICAgICAgICAgICAgICAgICAgIDwvZz4mI3hhOyAgICAgICAgICAgICAgICA8L2c+JiN4YTsgICAgICAgICAgICAgICAgPGcgZGF0YS1jZWxsLWlkPSI5N21DNmdrUEpnZTR6V3JraEVCRy0yIj4mI3hhOyAgICAgICAgICAgICAgICAgICAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMC41LDAuNSkiPiYjeGE7ICAgICAgICAgICAgICAgICAgICAgICAgPGVsbGlwc2UgY3g9IjUwLjUiIGN5PSIxMCIgcng9IjEwIiByeT0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMDAwMCIgcG9pbnRlci1ldmVudHM9ImFsbCIgc3R5bGU9InN0cm9rZTogbGlnaHQtZGFyayhyZ2IoMCwgMCwgMCksIHJnYigyNTUsIDI1NSwgMjU1KSk7Ii8+JiN4YTsgICAgICAgICAgICAgICAgICAgIDwvZz4mI3hhOyAgICAgICAgICAgICAgICA8L2c+JiN4YTsgICAgICAgICAgICAgICAgPGcgZGF0YS1jZWxsLWlkPSI5N21DNmdrUEpnZTR6V3JraEVCRy0zIj4mI3hhOyAgICAgICAgICAgICAgICAgICAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMC41LDAuNSkiPiYjeGE7ICAgICAgICAgICAgICAgICAgICAgICAgPHBhdGggZD0iTSAxMCAwLjA4IEwgNTAuNSAwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgcG9pbnRlci1ldmVudHM9InN0cm9rZSIgc3R5bGU9InN0cm9rZTogbGlnaHQtZGFyayhyZ2IoMCwgMCwgMCksIHJnYigyNTUsIDI1NSwgMjU1KSk7Ii8+JiN4YTsgICAgICAgICAgICAgICAgICAgIDwvZz4mI3hhOyAgICAgICAgICAgICAgICA8L2c+JiN4YTsgICAgICAgICAgICAgICAgPGcgZGF0YS1jZWxsLWlkPSI5N21DNmdrUEpnZTR6V3JraEVCRy00Ij4mI3hhOyAgICAgICAgICAgICAgICAgICAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMC41LDAuNSkiPiYjeGE7ICAgICAgICAgICAgICAgICAgICAgICAgPHBhdGggZD0iTSAxMC41IDIwIEwgNTAuNSAyMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2UtbWl0ZXJsaW1pdD0iMTAiIHBvaW50ZXItZXZlbnRzPSJzdHJva2UiIHN0eWxlPSJzdHJva2U6IGxpZ2h0LWRhcmsocmdiKDAsIDAsIDApLCByZ2IoMjU1LCAyNTUsIDI1NSkpOyIvPiYjeGE7ICAgICAgICAgICAgICAgICAgICA8L2c+JiN4YTsgICAgICAgICAgICAgICAgPC9nPiYjeGE7ICAgICAgICAgICAgPC9nPiYjeGE7ICAgICAgICA8L2c+JiN4YTsgICAgPC9nPiYjeGE7PC9zdmc+;",
+        "width": 60,
+        "height": 20,
+        "value": ""
+    },
+    "LED": {
+        "style": "html=1;verticalAlign=top;shape=mxgraph.electrical.miscellaneous.light_bulb;",
+        "width": 40,
+        "height": 40,
+    },
     # 可按需添加更多映射，键可以是中文类型或从 Excel 中读取到的原始类型字符串
 }
 
