@@ -56,6 +56,14 @@ COMPONENT_GRAPHICS: Dict[str, Dict[str, object]] = {
         "width": 40,
         "height": 40,
     },
+    # 空接：特殊类型，使用透明连线，不渲染中间节点
+    # 使用场景：表示两个端子之间有电气连接但在图中不显示连线（空接）
+    "空接": {
+        "style": "",  # 不渲染节点
+        "width": 0,
+        "height": 0,
+        "transparent_edge": True  # 标记需要透明边
+    },
     # 可按需添加更多映射，键可以是中文类型或从 Excel 中读取到的原始类型字符串
 }
 
@@ -668,6 +676,8 @@ class ConnectionGraph:
 
         node_cell_ids: Dict[str, str] = {}
         group_cell_ids: Dict[Tuple[str,str,str], str] = {}
+        # Track node positions for intermediate component placement
+        node_positions: Dict[str, Tuple[int, int]] = {}
 
         # build mxfile -> diagram -> mxGraphModel (match example)
         mxfile = ET.Element("mxfile", attrib={"host":"127.0.0.1"})
@@ -762,6 +772,8 @@ class ConnectionGraph:
                             # 绘制圆形节点
                             circle_id = gen_id()
                             node_cell_ids[terminal_str] = circle_id
+                            # Store position for intermediate component placement
+                            node_positions[terminal_str] = (nx, ny)
                             circle_style = "shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
                             circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="", style=circle_style, vertex="1", parent=gid)
                             circle_size = max(4, node_height // 4)
@@ -838,6 +850,8 @@ class ConnectionGraph:
                 # 把组内所有端子指向这个块 id（边会连接到该块）
                 for nstr in ordered_nodes:
                     node_cell_ids[nstr] = comp_block_id
+                    # Store component position (center of the component)
+                    node_positions[nstr] = (comp_x + comp_w // 2, comp_y + comp_h // 2)
                 # 跳过逐端子绘制
                 continue
 
@@ -848,6 +862,8 @@ class ConnectionGraph:
                 label = nstr.split(":")[-1]
                 circle_id = gen_id()
                 node_cell_ids[nstr] = circle_id  # 边连接指向圆形节点 id
+                # Store position for intermediate component placement
+                node_positions[nstr] = (nx, ny)
                 circle_style = "shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000"
                 circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="", style=circle_style, vertex="1", parent=gid)
                 # 圆的大小取 node_height 的 1/4，至少为 4 像素以保证可见
@@ -886,10 +902,13 @@ class ConnectionGraph:
             nid = gen_id()
             node_cell_ids[w] = nid
             wire_index += 1
+            wire_y = group_y_top + (wire_index - 1) * (node_height + node_gap)
+            # Store position for intermediate component placement
+            node_positions[w] = (wire_base_x, wire_y)
             v = ET.SubElement(root, "mxCell", id=nid, value=escape(label),
                               style="shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#A67C00",
                               parent="1", vertex="1")
-            ET.SubElement(v, "mxGeometry", attrib={"x": str(wire_base_x), "y": str(group_y_top + (wire_index - 1) * (node_height + node_gap)), "width": str(node_width // 2), "height": str(node_height), "as": "geometry"})
+            ET.SubElement(v, "mxGeometry", attrib={"x": str(wire_base_x), "y": str(wire_y), "width": str(node_width // 2), "height": str(node_height), "as": "geometry"})
 
         # create standalone nodes for any endpoints missing from node_cell_ids (e.g. wires)
         # and create edge cells
@@ -905,6 +924,8 @@ class ConnectionGraph:
                 standalone_index += 1
                 cx = 40
                 cy = 40 + standalone_index * (node_height + node_gap)
+                # Store position for intermediate component placement
+                node_positions[a_str] = (cx, cy)
                 circle_size = max(4, node_height // 4)
                 circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="",
                                             style="shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000",
@@ -917,10 +938,13 @@ class ConnectionGraph:
                 ET.SubElement(text_cell, "mxGeometry", attrib={"x": str(cx + circle_size + 6), "y": str(cy), "width": str(max(10, node_width - circle_size - 12)), "height": str(node_height), "as": "geometry"})
 
             if b_str not in node_cell_ids:
+                circle_id = gen_id()
                 node_cell_ids[b_str] = circle_id
                 standalone_index += 1
                 cx = 160
                 cy = 40 + standalone_index * (node_height + node_gap)
+                # Store position for intermediate component placement
+                node_positions[b_str] = (cx, cy)
                 circle_size = max(4, node_height // 4)
                 circle_cell = ET.SubElement(root, "mxCell", id=circle_id, value="",
                                             style="shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000",
@@ -936,24 +960,69 @@ class ConnectionGraph:
             conn_type = self.connection_types.get(key)
             reason_label = ""  # 保持连线上不显示长文本，避免遮挡；如需显示可改为 ",".join(sorted(reasons))
             
-            if conn_type and conn_type in COMPONENT_GRAPHICS:
+            # 特殊处理"空接"类型：使用透明连线，不创建中间节点
+            if conn_type == "空接":
+                edge_id = gen_id()
+                # 使用透明颜色的边样式
+                transparent_edge_style = "edgeStyle=elbowEdgeStyle;edgeRadius=0;rounded=0;html=1;strokeColor=none;startArrow=none;endArrow=none;opacity=0"
+                edge_attrib = {"id": edge_id, "edge":"1", "parent":"1", 
+                              "source": node_cell_ids[a_str], "target": node_cell_ids[b_str], 
+                              "value": escape(reason_label), "style": transparent_edge_style}
+                edge_el = ET.SubElement(root, "mxCell", **edge_attrib)
+                ET.SubElement(edge_el, "mxGeometry", attrib={"relative": "1", "as": "geometry"})
+            elif conn_type and conn_type in COMPONENT_GRAPHICS:
                 # 创建中间节点（使用COMPONENT_GRAPHICS中定义的图形）
                 gfx = COMPONENT_GRAPHICS[conn_type]
+                
+                # 跳过"空接"类型的中间节点（已在上面处理）
+                if gfx.get("transparent_edge"):
+                    continue
+                
                 intermediate_id = gen_id()
+                
+                # 计算中间节点的位置（放在两个端子之间）
+                pos_a = node_positions.get(a_str)
+                pos_b = node_positions.get(b_str)
+                
+                if pos_a and pos_b:
+                    # 计算中点位置
+                    mid_x = (pos_a[0] + pos_b[0]) // 2
+                    mid_y = (pos_a[1] + pos_b[1]) // 2
+                    comp_width = int(gfx.get("width", 75))
+                    comp_height = int(gfx.get("height", 20))
+                    # 调整位置使组件中心对齐中点
+                    comp_x = mid_x - comp_width // 2
+                    comp_y = mid_y - comp_height // 2
+                else:
+                    # 如果没有位置信息，使用相对定位
+                    comp_x = 0
+                    comp_y = 0
+                    comp_width = int(gfx.get("width", 75))
+                    comp_height = int(gfx.get("height", 20))
                 
                 # 创建中间节点（无名的元件节点）
                 comp_cell = ET.SubElement(root, "mxCell", id=intermediate_id, value=gfx.get("value", ""),
                                          style=gfx.get("style", ""), vertex="1", parent="1")
-                # 使用相对位置（draw.io会自动调整）或固定位置
-                # 这里我们不设置固定位置，让draw.io自动布局，只设置尺寸
-                ET.SubElement(comp_cell, "mxGeometry", attrib={
-                    "x": "0",  # 相对位置，draw.io会自动调整
-                    "y": "0",
-                    "width": str(int(gfx.get("width", 75))),
-                    "height": str(int(gfx.get("height", 20))),
-                    "as": "geometry",
-                    "relative": "1"  # 使用相对定位
-                })
+                
+                if pos_a and pos_b:
+                    # 使用绝对位置
+                    ET.SubElement(comp_cell, "mxGeometry", attrib={
+                        "x": str(comp_x),
+                        "y": str(comp_y),
+                        "width": str(comp_width),
+                        "height": str(comp_height),
+                        "as": "geometry"
+                    })
+                else:
+                    # 使用相对位置（draw.io会自动调整）
+                    ET.SubElement(comp_cell, "mxGeometry", attrib={
+                        "x": "0",
+                        "y": "0",
+                        "width": str(comp_width),
+                        "height": str(comp_height),
+                        "as": "geometry",
+                        "relative": "1"
+                    })
                 
                 # 创建两条边：a -> intermediate 和 intermediate -> b
                 edge_id1 = gen_id()
