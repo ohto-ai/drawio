@@ -249,11 +249,15 @@ class ConnectionGraph:
                       group_gap: int = 80, group_width: int = 240,
                       node_width: int = 180, node_height: int = 36, node_gap: int = 8,
                       component_types: Optional[Dict[Tuple[str, str], str]] = None,
-                      device_group_layouts: Optional[Dict[Tuple[str, str], List[List[Optional[str]]]]] = None):
+                      device_group_layouts: Optional[Dict[Tuple[str, str], List[List[Optional[str]]]]] = None,
+                      device_terminal_to_group_map: Optional[Dict[Tuple[str, str], str]] = None):
         """
         将当前 ConnectionGraph 导出为 draw.io (.drawio 即 xml) 文件。
         输出结构与示例保持一致：<mxfile><diagram><mxGraphModel>...</mxGraphModel></diagram></mxfile>
         布局规则同前：按 PANEL/DEVICE/COMPONENT 分组；组内按行排列；组之间按列排列。
+        
+        Args:
+            device_terminal_to_group_map: 映射 (cabinet_id, terminal_name) -> device_group_id
         """
         def node_group_key(node_str: str):
             # 特殊处理全局线束，不放入任何组内
@@ -266,10 +270,16 @@ class ConnectionGraph:
                 if m:
                     return ("PANEL", m.group(1), m.group(2))
             if "/@DEVICE:" in node_str:
-                # New format: CAB1/@DEVICE:terminal_name (no device_group_id in the identifier)
+                # New format: CAB1/@DEVICE:terminal_name
+                # Use device_terminal_to_group_map to find the device_group_id
                 m = re.match(r"([^/]+)/@DEVICE:(.+)", node_str)
                 if m:
-                    return ("DEVICE", m.group(1), "")
+                    cabinet_id = m.group(1)
+                    terminal_name = m.group(2)
+                    device_group_id = ""
+                    if device_terminal_to_group_map:
+                        device_group_id = device_terminal_to_group_map.get((cabinet_id, terminal_name), "")
+                    return ("DEVICE", cabinet_id, device_group_id)
             if "/@COMPONENT:" in node_str:
                 m = re.match(r"([^/]+)/@COMPONENT:([^:]+):(.+)", node_str)
                 if m:
@@ -1458,7 +1468,15 @@ class TerminalDataModel:
                             str_layout.append(str_row)
                         dg_layout_map[(cabinet.id, dgid)] = str_layout
 
-            g.to_drawio_xml(fp, title=title, component_types=comp_map, device_group_layouts=dg_layout_map)
+            # 构建 device_terminal_to_group 映射 (cabinet_id, terminal_name) -> device_group_id
+            device_term_to_group_map: Dict[Tuple[str,str], str] = {}
+            for cabinet in self.cabinets:
+                for terminal_name, device_group_id in cabinet.device_terminal_to_group.items():
+                    device_term_to_group_map[(cabinet.id, terminal_name)] = device_group_id
+
+            g.to_drawio_xml(fp, title=title, component_types=comp_map, 
+                          device_group_layouts=dg_layout_map,
+                          device_terminal_to_group_map=device_term_to_group_map)
             out_paths.append(fp)
         return out_paths
 
