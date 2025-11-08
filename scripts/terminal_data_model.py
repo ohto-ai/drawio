@@ -1095,8 +1095,19 @@ class TerminalDataModel:
                         terminal_type=TerminalType.BACKEND_COMPONENT
                     )
                 else:
+                    # Try to find device_group_id from existing device groups
+                    device_group_id = None
+                    for dgid, dginfo in cabinet.backend_device_groups.items():
+                        for tref in dginfo.terminal_refs:
+                            if tref.terminal_name == terminal_str:
+                                device_group_id = dgid
+                                break
+                        if device_group_id:
+                            break
+                    
                     return TerminalRef(
                         cabinet_id=cabinet_id,
+                        device_group_id=device_group_id,
                         terminal_name=terminal_str,
                         terminal_type=TerminalType.BACKEND_DEVICE
                     )
