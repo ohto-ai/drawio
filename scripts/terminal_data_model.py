@@ -15,6 +15,16 @@ logging.basicConfig(level=logging.DEBUG)
 
 # 预定义的 component 图形映射：类型名 -> mxCell style + 默认宽高/值
 # 只在能识别类型时使用，未识别则回退为文字标签
+# 
+# 装置组（Device Group）现在支持2D矩阵布局：
+# - 在Excel中，每行代表矩阵的一行，用分号分隔同行内的端子
+# - 空单元格用空字符串表示（如 ";term1" 表示第一列为空，第二列有端子）
+# - 示例：
+#   布局端子列：
+#     1n1x1;1n1x2  -> 第一行：[1n1x1, 1n1x2]
+#     1n1x3;1n1x4  -> 第二行：[1n1x3, 1n1x4]
+#     ;1n1x5       -> 第三行：[空, 1n1x5]
+#
 COMPONENT_GRAPHICS: Dict[str, Dict[str, object]] = {
     # 闭合开关（示例：开关闭合状态）
     "闭合开关": {
