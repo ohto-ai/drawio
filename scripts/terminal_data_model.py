@@ -1357,7 +1357,8 @@ class TerminalDataModel:
 if __name__ == "__main__":
     # 示例用法
     # excel_fold_path = r"C:\Users\OhtoAi\Downloads\继电保护室保护图纸 解析成果"
-    excel_fold_path = r"C:\Users\OhtoAi\Downloads\小测试"
+    # excel_fold_path = r"C:\Users\OhtoAi\Downloads\小测试"
+    excel_fold_path = r"C:/Users/OhtoAi/Downloads/母线保护"
     # get all xlsx files in the folder, include subfolders
     excel_files = []
     for root, dirs, files in os.walk(excel_fold_path):
