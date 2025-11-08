@@ -1034,14 +1034,19 @@ class TerminalDataModel:
                     )
                     internal_connection_terminal_refs.append(ic_terminal_ref)
                 else:
-                    # 自己单独一组
-                    # 如果小写abcn结尾
-                    # if ic.endswith(('a', 'b', 'c', 'n')):
-                    #     ic_device_group_id = ic[:-1]
-                    # else:
-                    #     ic_device_group_id = ic
+                    # Try to find device_group_id from existing device groups
+                    device_group_id = None
+                    for dgid, dginfo in cabinet.backend_device_groups.items():
+                        for tref in dginfo.terminal_refs:
+                            if tref.terminal_name == ic:
+                                device_group_id = dgid
+                                break
+                        if device_group_id:
+                            break
+                    
                     ic_terminal_ref = TerminalRef(
                         cabinet_id=cabinet_id,
+                        device_group_id=device_group_id,
                         terminal_name=ic,
                         terminal_type=TerminalType.BACKEND_DEVICE
                     )
