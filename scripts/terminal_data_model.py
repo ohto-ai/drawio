@@ -339,9 +339,9 @@ class ConnectionGraph:
         # 布局策略：基于组间连通关系进行逻辑布局（距离层级 -> 列；列内堆叠）
         # 先计算每个组的高度（与原来一致），用于列内堆叠
         top_padding = 16
-        label_height = 18
-        between_label_and_nodes = 6
-        bottom_padding = 20
+        label_height = 24  # 增加标签高度以容纳较长的名称
+        between_label_and_nodes = 8  # 增加标签和节点间的间距
+        bottom_padding = 24  # 增加底部内边距，为连接元件留出更多空间
         group_heights: Dict[Tuple[str,str,str], int] = {}
         group_widths: Dict[Tuple[str,str,str], int] = {}
         for gkey, nodes in sorted_groups:
@@ -359,8 +359,9 @@ class ConnectionGraph:
                     # Calculate width based on number of columns
                     max_cols = max(len(row) for row in layout) if layout else 1
                     # Each column needs space for circle + text
-                    col_width = max(80, node_width // 2)  # Reasonable minimum per column
-                    inner_width = max_cols * col_width + 24  # 24 for padding (12 on each side)
+                    # 增加列宽以容纳互联类型的无名元件（如开关、LED等）
+                    col_width = max(120, node_width // 2)  # 增加最小列宽从80到120
+                    inner_width = max_cols * col_width + 48  # 增加内边距从24到48 (两侧各24)
                     group_widths[gkey] = inner_width
                 else:
                     # No layout data, use default single-column calculation
@@ -387,6 +388,16 @@ class ConnectionGraph:
                 inner_nodes_height = max(node_height, col_node_count * (node_height + node_gap) - node_gap)
                 group_widths[gkey] = group_width
             group_heights[gkey] = top_padding + label_height + between_label_and_nodes + inner_nodes_height + bottom_padding
+            
+            # 确保容器宽度足够容纳标签文字
+            # 估算标签长度：机柜名 + " | " + 组类型 + ":" + 组ID
+            cab_name = gkey[1] or ""
+            label_text = f"{cab_name} | {gkey[0]}:{gkey[2] or gkey[1]}"
+            # 估算每个字符约占8像素（粗体），加上内边距24像素
+            estimated_label_width = len(label_text) * 8 + 24
+            # 确保组宽度至少能容纳标签
+            if group_widths.get(gkey, group_width) < estimated_label_width:
+                group_widths[gkey] = estimated_label_width
 
         # node -> gkey 映射（加速查找）
         node_to_group: Dict[str, Tuple[str,str,str]] = {}
@@ -799,15 +810,16 @@ class ConnectionGraph:
                                 "as": "geometry"
                             })
                             
-                            # 绘制文本标签
+                            # 绘制文本标签（增加与圆圈的间距以避免被连线遮挡）
                             label = terminal_str.split(":")[-1]
                             text_id = gen_id()
                             text_style = "text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none"
                             text_cell = ET.SubElement(root, "mxCell", id=text_id, value=escape(label), style=text_style, vertex="1", parent=gid)
+                            # 增加文本与圆圈的间距从6到12像素，便于区分连线和文字
                             ET.SubElement(text_cell, "mxGeometry", attrib={
-                                "x": str((nx - x_col) + circle_size + 6),
+                                "x": str((nx - x_col) + circle_size + 12),
                                 "y": str(ny - group_y_top),
-                                "width": str(max(10, col_width - circle_size - 12)),
+                                "width": str(max(10, col_width - circle_size - 18)),
                                 "height": str(node_height),
                                 "as": "geometry"
                             })
@@ -890,14 +902,15 @@ class ConnectionGraph:
                     "height": str(circle_size),
                     "as": "geometry"
                 })
-                # 文本标签放在圆的右侧
+                # 文本标签放在圆的右侧，增加间距以避免被连线遮挡
                 text_id = gen_id()
                 text_style = "text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none"
                 text_cell = ET.SubElement(root, "mxCell", id=text_id, value=escape(label), style=text_style, vertex="1", parent=gid)
+                # 增加文本与圆圈的间距从6到12像素，便于区分连线和文字
                 ET.SubElement(text_cell, "mxGeometry", attrib={
-                    "x": str((nx - x_col) + circle_size + 6),
+                    "x": str((nx - x_col) + circle_size + 12),
                     "y": str(ny - group_y_top),
-                    "width": str(max(10, node_width - circle_size - 12)),
+                    "width": str(max(10, node_width - circle_size - 18)),
                     "height": str(node_height),
                     "as": "geometry"
                 })
