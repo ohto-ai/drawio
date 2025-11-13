@@ -1,6 +1,6 @@
 import pandas as pd
-from typing import List, Optional, Dict, Any, Set, Iterable
-from dataclasses import dataclass
+from typing import List, Optional, Dict, Any, Set, Iterable, Tuple
+from dataclasses import dataclass, field
 from enum import Enum
 import re
 from pathlib import Path
@@ -9,9 +9,215 @@ from xml.sax.saxutils import escape
 import os
 import io
 
+
+# ============================================================================
+# Core Data Model Classes
+# ============================================================================
+
+@dataclass
+class Terminal:
+    """端子 - 连接点，具有名称属性"""
+    name: str                         # 端子名称
+    circuit_number: Optional[str] = None  # 回路号
+    cable_number: Optional[str] = None    # 电缆编号
+    
+    def __hash__(self):
+        return hash(self.name)
+    
+    def __eq__(self, other):
+        if isinstance(other, Terminal):
+            return self.name == other.name
+        return False
+
+
+@dataclass
+class TerminalBlock:
+    """端子排 - 纵向排列的端子组合，带有名称属性"""
+    name: str                         # 端子排名称
+    terminals: List[Terminal] = field(default_factory=list)  # 纵向排列的端子列表
+    description: str = ""             # 端子排说明
+    
+    def add_terminal(self, terminal: Terminal):
+        """添加端子到端子排"""
+        if terminal not in self.terminals:
+            self.terminals.append(terminal)
+    
+    def get_terminal(self, name: str) -> Optional[Terminal]:
+        """根据名称获取端子"""
+        for terminal in self.terminals:
+            if terminal.name == name:
+                return terminal
+        return None
+
+
+@dataclass 
+class DeviceTerminal:
+    """装置端子 - 装置内的端子，带有位置信息"""
+    name: str                         # 端子名称（机柜内独立名称）
+    row: int                          # 在装置中的行位置
+    col: int                          # 在装置中的列位置
+    
+    def __hash__(self):
+        return hash(self.name)
+    
+    def __eq__(self, other):
+        if isinstance(other, DeviceTerminal):
+            return self.name == other.name
+        return False
+
+
+@dataclass
+class Device:
+    """装置 - 带有规则布局端子的容器，一般是矩形阵列"""
+    name: str                         # 装置名称
+    terminals: List[DeviceTerminal] = field(default_factory=list)  # 端子列表
+    rows: int = 0                     # 行数
+    cols: int = 0                     # 列数
+    description: str = ""             # 装置说明
+    
+    def add_terminal(self, terminal: DeviceTerminal):
+        """添加端子到装置"""
+        if terminal not in self.terminals:
+            self.terminals.append(terminal)
+            # 更新行列数
+            self.rows = max(self.rows, terminal.row + 1)
+            self.cols = max(self.cols, terminal.col + 1)
+    
+    def get_terminal(self, name: str) -> Optional[DeviceTerminal]:
+        """根据名称获取端子"""
+        for terminal in self.terminals:
+            if terminal.name == name:
+                return terminal
+        return None
+    
+    def get_terminal_at(self, row: int, col: int) -> Optional[DeviceTerminal]:
+        """获取指定位置的端子"""
+        for terminal in self.terminals:
+            if terminal.row == row and terminal.col == col:
+                return terminal
+        return None
+
+
+@dataclass
+class ComponentTerminal:
+    """元件端子 - 元件上的固定端子"""
+    name: str                         # 端子名称
+    position: int                     # 端子位置索引
+    
+    def __hash__(self):
+        return hash(self.name)
+    
+    def __eq__(self, other):
+        if isinstance(other, ComponentTerminal):
+            return self.name == other.name
+        return False
+
+
+class ComponentType(Enum):
+    """元件类型"""
+    SWITCH = "开关"
+    PRESSURE_PLATE = "压板"
+    RELAY = "继电器"
+    OTHER = "其他"
+
+
+@dataclass
+class Component:
+    """元件 - 具有固定形状的电子器件（如开关、压板）"""
+    name: str                         # 元件名称
+    component_type: ComponentType     # 元件类型
+    terminals: List[ComponentTerminal] = field(default_factory=list)  # 端子列表
+    description: str = ""             # 元件说明
+    
+    # 元件内部连接关系（端子名称对）
+    internal_connections: List[Tuple[str, str]] = field(default_factory=list)
+    
+    def add_terminal(self, terminal: ComponentTerminal):
+        """添加端子到元件"""
+        if terminal not in self.terminals:
+            self.terminals.append(terminal)
+    
+    def get_terminal(self, name: str) -> Optional[ComponentTerminal]:
+        """根据名称获取端子"""
+        for terminal in self.terminals:
+            if terminal.name == name:
+                return terminal
+        return None
+    
+    def add_internal_connection(self, terminal1: str, terminal2: str):
+        """添加元件内部连接"""
+        conn = (terminal1, terminal2)
+        if conn not in self.internal_connections and (terminal2, terminal1) not in self.internal_connections:
+            self.internal_connections.append(conn)
+
+
+@dataclass
+class Cabinet:
+    """机柜 - 包含端子排、装置和元件的容器"""
+    number: str                       # 机柜编号
+    terminal_blocks: Dict[str, TerminalBlock] = field(default_factory=dict)  # 端子排字典
+    devices: Dict[str, Device] = field(default_factory=dict)  # 装置字典
+    components: Dict[str, Component] = field(default_factory=dict)  # 元件字典
+    description: str = ""             # 机柜说明
+    
+    def add_terminal_block(self, terminal_block: TerminalBlock):
+        """添加端子排到机柜"""
+        self.terminal_blocks[terminal_block.name] = terminal_block
+    
+    def add_device(self, device: Device):
+        """添加装置到机柜"""
+        self.devices[device.name] = device
+    
+    def add_component(self, component: Component):
+        """添加元件到机柜"""
+        self.components[component.name] = component
+    
+    def get_terminal_block(self, name: str) -> Optional[TerminalBlock]:
+        """根据名称获取端子排"""
+        return self.terminal_blocks.get(name)
+    
+    def get_device(self, name: str) -> Optional[Device]:
+        """根据名称获取装置"""
+        return self.devices.get(name)
+    
+    def get_component(self, name: str) -> Optional[Component]:
+        """根据名称获取元件"""
+        return self.components.get(name)
+
+
+class ConnectionType(Enum):
+    """连接类型"""
+    DIRECT = "直连"                   # 端子直接互联
+    INTERNAL_WIRE = "内部连线"        # 机柜内部连线
+    CIRCUIT = "回路"                  # 通过回路号连接
+    THROUGH_COMPONENT = "经过元件"    # 通过元件连接
+
+
+@dataclass
+class Connection:
+    """连接关系 - 描述两个端子之间的连接"""
+    from_ref: str                     # 源端子引用（格式：机柜/端子排:端子号 或 机柜/装置端子号 或 机柜/元件:端子号）
+    to_ref: str                       # 目标端子引用
+    connection_type: ConnectionType   # 连接类型
+    circuit_number: Optional[str] = None  # 回路号（用于回路连接）
+    cable_number: Optional[str] = None    # 电缆编号（用于回路连接）
+    component_name: Optional[str] = None  # 元件名称（用于经过元件的连接）
+    description: str = ""             # 连接说明
+    
+    def is_circuit_connection(self) -> bool:
+        """判断是否为回路连接（需要回路号和电缆编号都相同）"""
+        return (self.connection_type == ConnectionType.CIRCUIT and 
+                self.circuit_number is not None and 
+                self.cable_number is not None)
+
+
+# ============================================================================
+# Legacy TerminalInfo for backward compatibility
+# ============================================================================
+
 @dataclass
 class TerminalInfo:
-    """端子排信息数据类"""
+    """端子排信息数据类（保留用于向后兼容）"""
     cabinet_name: str                # 机柜名称
     circuit_number: str              # 回路号
     terminal_block_desc: str         # 端子排说明
@@ -31,6 +237,7 @@ class TerminalInfo:
     remarks: str                     # 备注
     col_wire_text: str               # COLWIRETExT
     cable_type: str                  # 线缆型号
+
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'TerminalInfo':
@@ -70,8 +277,180 @@ class TerminalInfo:
             cable_type=safe_str(data.get('线缆型号', '')),
         )
 
+
+# ============================================================================
+# System Level Classes
+# ============================================================================
+
+class CabinetSystem:
+    """机柜系统 - 管理多个机柜及其之间的连接关系"""
+    
+    def __init__(self):
+        self.cabinets: Dict[str, Cabinet] = {}  # 机柜字典
+        self.connections: List[Connection] = []  # 连接列表
+        self.circuits: Dict[str, List[str]] = defaultdict(list)  # 回路号 -> 端子引用列表
+        
+    def add_cabinet(self, cabinet: Cabinet):
+        """添加机柜到系统"""
+        self.cabinets[cabinet.number] = cabinet
+    
+    def get_cabinet(self, number: str) -> Optional[Cabinet]:
+        """根据编号获取机柜"""
+        return self.cabinets.get(number)
+    
+    def add_connection(self, connection: Connection):
+        """添加连接关系"""
+        self.connections.append(connection)
+        
+        # 如果是回路连接，添加到回路字典
+        if connection.is_circuit_connection():
+            key = f"{connection.circuit_number}_{connection.cable_number}"
+            if connection.from_ref not in self.circuits[key]:
+                self.circuits[key].append(connection.from_ref)
+            if connection.to_ref not in self.circuits[key]:
+                self.circuits[key].append(connection.to_ref)
+    
+    def parse_terminal_ref(self, ref: str) -> Optional[Tuple[str, str, str, str]]:
+        """
+        解析端子引用字符串
+        格式:
+          - 机柜/端子排:端子号 (terminal block terminal)
+          - 机柜/装置端子号 (device terminal)
+          - 机柜/元件:端子号 (component terminal)
+        
+        返回: (cabinet_number, type, container_name, terminal_name)
+          type: 'terminal_block' | 'device' | 'component'
+        """
+        ref = (ref or "").strip()
+        if not ref:
+            return None
+        
+        # 尝试匹配 机柜/容器:端子 格式
+        if "/" in ref and ":" in ref:
+            parts = ref.split("/", 1)
+            cabinet = parts[0].strip()
+            rest = parts[1].strip()
+            
+            if ":" in rest:
+                container, terminal = rest.split(":", 1)
+                # 判断是端子排还是元件
+                # 通常元件名称会包含类型标识，端子排是纯编号或名称
+                # 这里简单假设：如果container在机柜的components中存在，则为元件
+                cab = self.get_cabinet(cabinet)
+                if cab:
+                    if container in cab.components:
+                        return (cabinet, "component", container.strip(), terminal.strip())
+                    elif container in cab.terminal_blocks:
+                        return (cabinet, "terminal_block", container.strip(), terminal.strip())
+            else:
+                # 格式为 机柜/端子号，可能是装置端子
+                return (cabinet, "device", "", rest)
+        
+        return None
+    
+    def get_terminal_by_ref(self, ref: str) -> Optional[Any]:
+        """根据引用获取端子对象"""
+        parsed = self.parse_terminal_ref(ref)
+        if not parsed:
+            return None
+        
+        cabinet_num, term_type, container, terminal_name = parsed
+        cabinet = self.get_cabinet(cabinet_num)
+        if not cabinet:
+            return None
+        
+        if term_type == "terminal_block":
+            tb = cabinet.get_terminal_block(container)
+            return tb.get_terminal(terminal_name) if tb else None
+        elif term_type == "device":
+            # 装置端子需要遍历所有装置
+            for device in cabinet.devices.values():
+                t = device.get_terminal(terminal_name)
+                if t:
+                    return t
+            return None
+        elif term_type == "component":
+            comp = cabinet.get_component(container)
+            return comp.get_terminal(terminal_name) if comp else None
+        
+        return None
+    
+    def get_connected_terminals(self, ref: str, visited: Optional[Set[str]] = None) -> Set[str]:
+        """
+        获取与指定端子连接的所有端子引用（递归查找）
+        
+        Args:
+            ref: 端子引用
+            visited: 已访问的端子集合（用于避免循环）
+        
+        Returns:
+            连接的端子引用集合
+        """
+        if visited is None:
+            visited = set()
+        
+        if ref in visited:
+            return visited
+        
+        visited.add(ref)
+        connected = set([ref])
+        
+        # 查找直接连接
+        for conn in self.connections:
+            if conn.from_ref == ref and conn.to_ref not in visited:
+                connected.update(self.get_connected_terminals(conn.to_ref, visited))
+            elif conn.to_ref == ref and conn.from_ref not in visited:
+                connected.update(self.get_connected_terminals(conn.from_ref, visited))
+        
+        # 查找回路连接
+        for conn in self.connections:
+            if conn.is_circuit_connection():
+                if conn.from_ref == ref or conn.to_ref == ref:
+                    # 找到同一回路的所有端子
+                    key = f"{conn.circuit_number}_{conn.cable_number}"
+                    for term_ref in self.circuits[key]:
+                        if term_ref not in visited:
+                            connected.update(self.get_connected_terminals(term_ref, visited))
+        
+        return connected
+    
+    def get_connections_by_circuit(self, circuit_number: str, cable_number: Optional[str] = None) -> List[Connection]:
+        """获取指定回路的所有连接"""
+        result = []
+        for conn in self.connections:
+            if conn.circuit_number == circuit_number:
+                if cable_number is None or conn.cable_number == cable_number:
+                    result.append(conn)
+        return result
+    
+    def validate_connections(self) -> List[str]:
+        """
+        验证连接关系的有效性
+        
+        Returns:
+            错误信息列表
+        """
+        errors = []
+        
+        for conn in self.connections:
+            # 检查源端子是否存在
+            if not self.get_terminal_by_ref(conn.from_ref):
+                errors.append(f"源端子不存在: {conn.from_ref}")
+            
+            # 检查目标端子是否存在
+            if not self.get_terminal_by_ref(conn.to_ref):
+                errors.append(f"目标端子不存在: {conn.to_ref}")
+            
+            # 检查回路连接是否同时有回路号和电缆编号
+            if conn.connection_type == ConnectionType.CIRCUIT:
+                if not conn.circuit_number or not conn.cable_number:
+                    errors.append(f"回路连接缺少回路号或电缆编号: {conn.from_ref} -> {conn.to_ref}")
+        
+        return errors
+
+
 class TerminalBlockReader:
-    """端子排信息读取器"""
+    """端子排信息读取器（保留用于向后兼容）"""
     
     def __init__(self):
         pass
@@ -166,6 +545,158 @@ class TerminalBlockReader:
         print(f"\n数据处理完成: 成功 {successful_count} 条, 失败 {error_count} 条")
         return terminal_blocks
 
+
+# ============================================================================
+# Converter: Legacy TerminalInfo to New Model
+# ============================================================================
+
+class LegacyConverter:
+    """将旧的TerminalInfo数据转换为新的CabinetSystem模型"""
+    
+    @staticmethod
+    def convert_to_cabinet_system(terminal_infos: List[TerminalInfo]) -> CabinetSystem:
+        """
+        将TerminalInfo列表转换为CabinetSystem
+        
+        Args:
+            terminal_infos: TerminalInfo对象列表
+            
+        Returns:
+            CabinetSystem对象
+        """
+        system = CabinetSystem()
+        
+        # 第一遍：创建机柜、端子排和端子
+        for info in terminal_infos:
+            cabinet_num = info.cabinet_name or "默认机柜"
+            
+            # 获取或创建机柜
+            cabinet = system.get_cabinet(cabinet_num)
+            if not cabinet:
+                cabinet = Cabinet(number=cabinet_num)
+                system.add_cabinet(cabinet)
+            
+            # 获取或创建端子排
+            if info.terminal_block:
+                terminal_block = cabinet.get_terminal_block(info.terminal_block)
+                if not terminal_block:
+                    terminal_block = TerminalBlock(
+                        name=info.terminal_block,
+                        description=info.terminal_block_desc
+                    )
+                    cabinet.add_terminal_block(terminal_block)
+                
+                # 创建端子
+                terminal = Terminal(
+                    name=info.terminal_number,
+                    circuit_number=info.circuit_number if info.circuit_number else None,
+                    cable_number=info.cable_number if info.cable_number else None
+                )
+                terminal_block.add_terminal(terminal)
+        
+        # 第二遍：创建连接关系
+        for info in terminal_infos:
+            if not info.terminal_block or not info.terminal_number:
+                continue
+            
+            cabinet_num = info.cabinet_name or "默认机柜"
+            from_ref = f"{cabinet_num}/{info.terminal_block}:{info.terminal_number}"
+            
+            # 处理互联端子（直连）
+            for interconnect in info.interconnect_terminal:
+                if not interconnect:
+                    continue
+                
+                # 解析互联端子引用
+                to_ref = LegacyConverter._parse_interconnect_ref(
+                    interconnect, cabinet_num, info.terminal_block
+                )
+                
+                if to_ref:
+                    connection = Connection(
+                        from_ref=from_ref,
+                        to_ref=to_ref,
+                        connection_type=ConnectionType.DIRECT,
+                        description="直接互联"
+                    )
+                    system.add_connection(connection)
+            
+            # 处理内部配线
+            for internal in info.internal_wiring:
+                if not internal:
+                    continue
+                
+                # 内部配线可能指向装置端子或其他端子
+                to_ref = LegacyConverter._parse_interconnect_ref(
+                    internal, cabinet_num, info.terminal_block
+                )
+                
+                if to_ref:
+                    connection = Connection(
+                        from_ref=from_ref,
+                        to_ref=to_ref,
+                        connection_type=ConnectionType.INTERNAL_WIRE,
+                        description="内部配线"
+                    )
+                    system.add_connection(connection)
+            
+            # 处理回路连接
+            if info.circuit_number and info.cable_number:
+                # 回路连接需要找到所有具有相同回路号和电缆编号的端子
+                for other_info in terminal_infos:
+                    if (other_info.circuit_number == info.circuit_number and
+                        other_info.cable_number == info.cable_number and
+                        other_info != info):
+                        
+                        other_cabinet = other_info.cabinet_name or "默认机柜"
+                        if not other_info.terminal_block or not other_info.terminal_number:
+                            continue
+                        
+                        to_ref = f"{other_cabinet}/{other_info.terminal_block}:{other_info.terminal_number}"
+                        
+                        # 避免重复添加双向连接
+                        if from_ref < to_ref:  # 只添加一次
+                            connection = Connection(
+                                from_ref=from_ref,
+                                to_ref=to_ref,
+                                connection_type=ConnectionType.CIRCUIT,
+                                circuit_number=info.circuit_number,
+                                cable_number=info.cable_number,
+                                description=f"回路{info.circuit_number}"
+                            )
+                            system.add_connection(connection)
+        
+        return system
+    
+    @staticmethod
+    def _parse_interconnect_ref(ref: str, default_cabinet: str, default_block: str) -> str:
+        """
+        解析互联端子引用，补全默认机柜和端子排
+        
+        Args:
+            ref: 端子引用字符串
+            default_cabinet: 默认机柜编号
+            default_block: 默认端子排名称
+            
+        Returns:
+            完整的端子引用字符串
+        """
+        ref = (ref or "").strip()
+        if not ref:
+            return ""
+        
+        # 完整格式：机柜/端子排:端子号
+        if "/" in ref and ":" in ref:
+            return ref
+        
+        # 带端子排：端子排:端子号
+        if ":" in ref:
+            return f"{default_cabinet}/{ref}"
+        
+        # 仅端子号
+        return f"{default_cabinet}/{default_block}:{ref}"
+
+
 def export_to_excel(terminal_blocks: List[TerminalInfo], output_path: str):
     """导出数据到Excel文件"""
     try:
@@ -215,6 +746,7 @@ def print_terminal_info(terminal: TerminalInfo):
 class ConnectionGraph:
     """
     将端子和回路建成无向图并能导出按机柜->端子排->端子分层的 draw.io XML。
+    更新以支持新的CabinetSystem模型。
     """
     CIRCUIT_PREFIX = "@CIRCUIT:"
     INTERNAL_PREFIX = "@INTERNAL:"
@@ -231,6 +763,8 @@ class ConnectionGraph:
         self.edge_labels: Dict[frozenset, str] = {}
         # 连接件计数（如果需要）
         self._conn_counter = 0
+        # 新增：CabinetSystem引用（可选）
+        self.cabinet_system: Optional[CabinetSystem] = None
 
     @staticmethod
     def make_terminal_node(cabinet: str, block: str, terminal: str) -> tuple:
@@ -359,6 +893,230 @@ class ConnectionGraph:
         # 再添加实际边
         for t in terminals:
             self.add_terminal(t)
+    
+    def build_from_cabinet_system(self, system: CabinetSystem):
+        """
+        从CabinetSystem构建连接图
+        
+        Args:
+            system: CabinetSystem对象
+        """
+        # 清空已有图
+        self.adj.clear()
+        self.terminal_info_map.clear()
+        self.edges.clear()
+        self.edge_labels.clear()
+        self._conn_counter = 0
+        self.cabinet_system = system
+        
+        # 添加所有端子节点
+        for cabinet in system.cabinets.values():
+            # 添加端子排的端子
+            for terminal_block in cabinet.terminal_blocks.values():
+                for terminal in terminal_block.terminals:
+                    node = self.make_terminal_node(
+                        cabinet.number,
+                        terminal_block.name,
+                        terminal.name
+                    )
+                    # 创建一个虚拟的TerminalInfo用于向后兼容
+                    info = TerminalInfo(
+                        cabinet_name=cabinet.number,
+                        circuit_number=terminal.circuit_number or "",
+                        terminal_block_desc=terminal_block.description,
+                        terminal_block=terminal_block.name,
+                        terminal_number=terminal.name,
+                        side="",
+                        internal_wiring=[],
+                        interconnect_terminal=[],
+                        function_desc="",
+                        external_wiring="",
+                        cable_core_number="",
+                        cable_number=terminal.cable_number or "",
+                        core_number="",
+                        cable_model="",
+                        opposite_device_number="",
+                        opposite_device_name="",
+                        remarks="",
+                        col_wire_text="",
+                        cable_type=""
+                    )
+                    self.terminal_info_map[node] = info
+                    _ = self.adj[node]
+                    
+                    # 添加回路节点连接
+                    if terminal.circuit_number:
+                        cnode = self.make_circuit_node(terminal.circuit_number)
+                        self.add_edge(node, cnode)
+            
+            # 添加装置端子节点
+            for device in cabinet.devices.values():
+                for terminal in device.terminals:
+                    # 装置端子使用特殊格式：机柜/装置/端子名
+                    node = self.make_terminal_node(
+                        cabinet.number,
+                        f"DEV_{device.name}",
+                        terminal.name
+                    )
+                    info = TerminalInfo(
+                        cabinet_name=cabinet.number,
+                        circuit_number="",
+                        terminal_block_desc=device.description,
+                        terminal_block=f"DEV_{device.name}",
+                        terminal_number=terminal.name,
+                        side="",
+                        internal_wiring=[],
+                        interconnect_terminal=[],
+                        function_desc="",
+                        external_wiring="",
+                        cable_core_number="",
+                        cable_number="",
+                        core_number="",
+                        cable_model="",
+                        opposite_device_number="",
+                        opposite_device_name="",
+                        remarks="",
+                        col_wire_text="",
+                        cable_type=""
+                    )
+                    self.terminal_info_map[node] = info
+                    _ = self.adj[node]
+            
+            # 添加元件端子节点
+            for component in cabinet.components.values():
+                for terminal in component.terminals:
+                    node = self.make_terminal_node(
+                        cabinet.number,
+                        component.name,
+                        terminal.name
+                    )
+                    info = TerminalInfo(
+                        cabinet_name=cabinet.number,
+                        circuit_number="",
+                        terminal_block_desc=component.description,
+                        terminal_block=component.name,
+                        terminal_number=terminal.name,
+                        side="",
+                        internal_wiring=[],
+                        interconnect_terminal=[],
+                        function_desc="",
+                        external_wiring="",
+                        cable_core_number="",
+                        cable_number="",
+                        core_number="",
+                        cable_model="",
+                        opposite_device_number="",
+                        opposite_device_name="",
+                        remarks="",
+                        col_wire_text="",
+                        cable_type=""
+                    )
+                    self.terminal_info_map[node] = info
+                    _ = self.adj[node]
+                
+                # 添加元件内部连接
+                for term1, term2 in component.internal_connections:
+                    node1 = self.make_terminal_node(cabinet.number, component.name, term1)
+                    node2 = self.make_terminal_node(cabinet.number, component.name, term2)
+                    self.add_edge(node1, node2, label=f"{component.component_type.value}")
+        
+        # 添加连接边
+        for connection in system.connections:
+            # 解析源和目标端子引用
+            from_parsed = system.parse_terminal_ref(connection.from_ref)
+            to_parsed = system.parse_terminal_ref(connection.to_ref)
+            
+            if not from_parsed or not to_parsed:
+                continue
+            
+            from_cabinet, from_type, from_container, from_terminal = from_parsed
+            to_cabinet, to_type, to_container, to_terminal = to_parsed
+            
+            # 构建节点
+            if from_type == "device":
+                from_node = self.make_terminal_node(from_cabinet, f"DEV_{from_terminal}", from_terminal)
+            else:
+                from_node = self.make_terminal_node(from_cabinet, from_container, from_terminal)
+            
+            if to_type == "device":
+                to_node = self.make_terminal_node(to_cabinet, f"DEV_{to_terminal}", to_terminal)
+            else:
+                to_node = self.make_terminal_node(to_cabinet, to_container, to_terminal)
+            
+            # 根据连接类型添加边
+            if connection.connection_type == ConnectionType.THROUGH_COMPONENT:
+                # 通过元件连接，需要创建中间节点
+                if connection.component_name:
+                    conn_node = self.make_connection_node(connection.component_name)
+                    _ = self.adj[conn_node]
+                    self.add_edge(from_node, conn_node, label=connection.description)
+                    self.add_edge(conn_node, to_node, label=connection.description)
+            else:
+                # 直接连接
+                label = connection.description
+                if connection.circuit_number:
+                    label = f"{connection.circuit_number}"
+                self.add_edge(from_node, to_node, label=label)
+
+    def build_from_terminals(self, terminals: Iterable[TerminalInfo]):
+        # 清空已有图
+        self.adj.clear()
+        self.terminal_info_map.clear()
+        self.edges.clear()
+        self.edge_labels.clear()
+        self._conn_counter = 0
+        # 先加入所有端子节点（以便互联引用不存在时也能查询到节点）
+        for t in terminals:
+            node = self.make_terminal_node(t.cabinet_name, t.terminal_block, t.terminal_number)
+            self.terminal_info_map[node] = t
+            _ = self.adj[node]
+
+        # 再添加实际边
+        for t in terminals:
+            self.add_terminal(t)
+
+    
+    def export_system_to_drawio(self, output_dir: Path, separate_by_cabinet: bool = True):
+        """
+        从CabinetSystem导出drawio文件
+        
+        Args:
+            output_dir: 输出目录
+            separate_by_cabinet: 是否为每个机柜生成单独的文件
+        """
+        if not self.cabinet_system:
+            raise ValueError("未设置CabinetSystem，请先调用build_from_cabinet_system")
+        
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        if separate_by_cabinet:
+            # 为每个机柜生成单独的图纸
+            for cabinet in self.cabinet_system.cabinets.values():
+                # 找到包含该机柜端子的所有组件
+                comps = self.get_components_by_cabinet(cabinet.number)
+                
+                for rep, comp in comps.items():
+                    # 生成文件名
+                    safe_rep = rep.replace("/", "_").replace(":", "_")
+                    safe_cabinet = cabinet.number.replace("/", "_")
+                    filename = output_dir / f"cabinet_{safe_cabinet}_{safe_rep}.drawio"
+                    
+                    try:
+                        self.export_drawio_xml(comp, filename, title=f"{cabinet.number} - {rep}")
+                        print(f"已导出: {filename}")
+                    except Exception as e:
+                        print(f"导出失败 {filename}: {e}")
+        else:
+            # 导出所有组件到单独的文件
+            comps = self.get_all_components()
+            for rep, comp in comps.items():
+                filename = output_dir / make_filename_for_component(comp, self)
+                try:
+                    self.export_drawio_xml(comp, filename, title=rep)
+                    print(f"已导出: {filename}")
+                except Exception as e:
+                    print(f"导出失败 {filename}: {e}")
 
     def bfs_component(self, start: Any) -> Set[Any]:
         if start not in self.adj:
@@ -1216,4 +1974,70 @@ def test_multiple_circuits_in_same_component_filename(tmp_path):
     # also check that circuits order in filename is deterministic (sorted)
     circuits_in_fname = fname.split("_")[-1].split(".")[0]  # something like "C1_C2"
     assert "C1_C2" in circuits_in_fname or "C2_C1" in circuits_in_fname
+
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
+def create_example_system() -> CabinetSystem:
+    """
+    创建一个示例机柜系统用于测试和演示
+    
+    Returns:
+        CabinetSystem: 包含两个机柜的示例系统
+    """
+    system = CabinetSystem()
+    
+    # 机柜1：控制柜
+    cabinet1 = Cabinet(number="CAB001", description="主控制柜")
+    
+    # 端子排1：电源端子排
+    tb_power = TerminalBlock(name="TB_POWER", description="电源端子排")
+    tb_power.add_terminal(Terminal(name="L1", circuit_number="PWR_L1", cable_number="CABLE_001"))
+    tb_power.add_terminal(Terminal(name="L2", circuit_number="PWR_L2", cable_number="CABLE_001"))
+    tb_power.add_terminal(Terminal(name="L3", circuit_number="PWR_L3", cable_number="CABLE_001"))
+    tb_power.add_terminal(Terminal(name="N", circuit_number="PWR_N", cable_number="CABLE_001"))
+    cabinet1.add_terminal_block(tb_power)
+    
+    # 装置1：PLC模块
+    plc = Device(name="PLC_001", description="PLC模块")
+    for i in range(8):
+        plc.add_terminal(DeviceTerminal(name=f"DI{i+1}", row=i//4, col=i%4))
+    cabinet1.add_device(plc)
+    
+    # 元件1：主电源开关
+    main_switch = Component(
+        name="QF1",
+        component_type=ComponentType.SWITCH,
+        description="主电源断路器"
+    )
+    main_switch.add_terminal(ComponentTerminal(name="1", position=0))
+    main_switch.add_terminal(ComponentTerminal(name="2", position=1))
+    main_switch.add_internal_connection("1", "2")
+    cabinet1.add_component(main_switch)
+    
+    system.add_cabinet(cabinet1)
+    
+    # 机柜2：I/O扩展柜
+    cabinet2 = Cabinet(number="CAB002", description="I/O扩展柜")
+    
+    # 端子排2：I/O端子排
+    tb_io = TerminalBlock(name="TB_IO", description="I/O端子排")
+    for i in range(1, 11):
+        tb_io.add_terminal(Terminal(name=f"IO{i}"))
+    cabinet2.add_terminal_block(tb_io)
+    
+    system.add_cabinet(cabinet2)
+    
+    # 添加连接
+    connection1 = Connection(
+        from_ref="CAB001/TB_POWER:L1",
+        to_ref="CAB001/QF1:1",
+        connection_type=ConnectionType.INTERNAL_WIRE,
+        description="电源线"
+    )
+    system.add_connection(connection1)
+    
+    return system
 
