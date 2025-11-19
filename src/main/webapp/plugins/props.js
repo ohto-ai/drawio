@@ -161,6 +161,14 @@ Draw.loadPlugin(function(ui) {
 		graph.selectionModel.addListener(mxEvent.CHANGE, function(sender, evt)
 		{
 			cellClicked(graph.getSelectionCell());
+			
+			// Automatically report selected cells to console for secondary development
+			var selectedCells = graph.getSelectionCells();
+			if (selectedCells && selectedCells.length > 0)
+			{
+				console.log('Selected cells:', selectedCells);
+				console.log('Selected cells data:', graph.getDataForCells(selectedCells));
+			}
 		});
 		
 		graph.model.addListener(mxEvent.CHANGE, function(sender, evt)
@@ -176,6 +184,14 @@ Draw.loadPlugin(function(ui) {
 			window.setTimeout(function()
 			{
 				cellClicked(me.getCell());
+				
+				// Automatically report selected cells to console for secondary development
+				var selectedCells = graph.getSelectionCells();
+				if (selectedCells && selectedCells.length > 0)
+				{
+					console.log('Selected cells:', selectedCells);
+					console.log('Selected cells data:', graph.getDataForCells(selectedCells));
+				}
 			}, 0);
 		};
 	}
