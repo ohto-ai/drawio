@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Element Jump Functionality</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-link {
+            display: inline-block;
+            padding: 10px;
+            margin: 5px;
+            background-color: #f0f0f0;
+            text-decoration: none;
+            border-radius: 3px;
+            color: #333;
+        }
+        .test-link:hover {
+            background-color: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Element Jump Functionality Test</h1>
+    
+    <div class="test-section">
+        <h2>Description</h2>
+        <p>This test demonstrates the element positioning jump function that can navigate to specific elements by ID in draw.io diagrams.</p>
+        <p>The functionality allows:</p>
+        <ul>
+            <li>Jumping to an element by its ID on the drawing</li>
+            <li>Using URL parameters to jump after loading the drawing</li>
+        </ul>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Examples</h2>
+        <p>Click these links to test the element jump functionality (assuming you have a diagram with these element IDs):</p>
+        
+        <!-- Example URLs for testing -->
+        <a href="index.html?elementId=element1" class="test-link">Jump to Element 1</a>
+        <a href="index.html?elementId=element2" class="test-link">Jump to Element 2</a>
+        <a href="index.html?elementId=shape1" class="test-link">Jump to Shape 1</a>
+        <a href="index.html?elementId=connector1" class="test-link">Jump to Connector 1</a>
+    </div>
+    
+    <div class="test-section">
+        <h2>URL Parameter Format</h2>
+        <p>To use this functionality, add the <code>elementId</code> parameter to your URL:</p>
+        <pre>http://your-domain.com/drawio/?elementId=YOUR_ELEMENT_ID</pre>
+        
+        <h3>Example with other parameters:</h3>
+        <pre>http://your-domain.com/drawio/?url=diagram.drawio&elementId=shape123</pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>JavaScript API</h2>
+        <p>You can also call the function programmatically:</p>
+        <pre><code>// Jump to an element by ID
+jumpToElement(graph, 'your-element-id');
+
+// The function returns true if element is found, false otherwise
+var success = jumpToElement(graph, 'element123');
+if (!success) {
+    console.log('Element not found');
+}</code></pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Instructions</h2>
+        <ol>
+            <li>Create or open a draw.io diagram</li>
+            <li>Note down some element IDs from your diagram (you can inspect the XML or use browser dev tools)</li>
+            <li>Replace the example element IDs in the test links above</li>
+            <li>Test the functionality by clicking the links</li>
+        </ol>
+    </div>
+    
+    <script>
+        // Simple test function that can be called from console
+        function testElementJump(elementId) {
+            if (typeof jumpToElement === 'function' && window.graph) {
+                return jumpToElement(window.graph, elementId);
+            } else {
+                console.error('jumpToElement function or graph not available');
+                return false;
+            }
+        }
+        
+        console.log('Element Jump test page loaded. Use testElementJump("your-id") to test programmatically.');
+    </script>
+</body>
+</html>

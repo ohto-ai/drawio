@@ -107,6 +107,103 @@ Editor.initMath((remoteMath? 'https://app.diagrams.net/' : '') + 'math/es5/start
 var fontPreload = {};
 var cssPreload = {};
 
+/**
+ * Jumps to an element with the given ID on the diagram
+ */
+function jumpToElement(graph, elementId)
+{
+	try
+	{
+		var model = graph.getModel();
+		var cells = model.getDescendants(model.getRoot());
+		var targetCell = null;
+		
+		// Find the cell with the matching ID
+		for (var i = 0; i < cells.length; i++)
+		{
+			var cell = cells[i];
+			if (cell != null && cell.getId() === elementId)
+			{
+				targetCell = cell;
+				break;
+			}
+		}
+		
+		if (targetCell != null)
+		{
+			// Get the cell bounds
+			var bounds = graph.getCellBounds(targetCell);
+			
+			if (bounds != null)
+			{
+				// Calculate center point of the cell
+				var centerX = bounds.x + bounds.width / 2;
+				var centerY = bounds.y + bounds.height / 2;
+				
+				// Get current view dimensions
+				var view = graph.getView();
+				var container = graph.getContainer();
+				var viewWidth = container.offsetWidth;
+				var viewHeight = container.offsetHeight;
+				
+				// Calculate translation to center the element
+				var scale = view.getScale();
+				var translate = view.getTranslate();
+				
+				var newTranslateX = (viewWidth / 2) / scale - centerX;
+				var newTranslateY = (viewHeight / 2) / scale - centerY;
+				
+				// Apply the translation to center the element
+				view.setTranslate(newTranslateX, newTranslateY);
+				
+				// Select the cell if selection is supported
+				if (typeof graph.setSelectionCell === 'function')
+				{
+					graph.setSelectionCell(targetCell);
+				}
+				
+				// Optional: Add temporary highlighting with a different color
+				if (typeof mxCellHighlight !== 'undefined')
+				{
+					try
+					{
+						var highlight = new mxCellHighlight(graph, '#ff0000', 2);
+						var state = graph.view.getState(targetCell);
+						if (state != null)
+						{
+							highlight.highlight(state);
+							
+							// Remove highlight after 3 seconds
+							setTimeout(function()
+							{
+								if (highlight != null)
+								{
+									highlight.destroy();
+								}
+							}, 3000);
+						}
+					}
+					catch (e)
+					{
+						// Highlighting failed, but that's optional - continue anyway
+						console.log('Could not highlight element:', e.message);
+					}
+				}
+				
+				return true;
+			}
+		}
+		
+		console.warn('Element with ID "' + elementId + '" not found in diagram');
+		return false;
+	}
+	catch (e)
+	{
+		console.error('Error jumping to element:', e);
+		return false;
+	}
+}
+
 function render(data)
 {
 	if (data.shadows == '0')
@@ -393,6 +490,14 @@ function render(data)
 			{
 				// Rewrite page links
 				Graph.rewritePageLinks(document);
+				
+				// Jump to element if elementId is specified (after everything is loaded)
+				if (data.elementId != null && graph != null)
+				{
+					setTimeout(function() {
+						jumpToElement(graph, data.elementId);
+					}, 100); // Small delay to ensure DOM is ready
+				}
 				
 				var doneDiv = document.createElement("div");
 				var pageCount = diagrams != null? diagrams.length : 1;
